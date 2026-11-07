@@ -1,0 +1,7 @@
+{
+  "ZEBRA": {"status": "DEFINITION_ONLY", "asset_profile": "EQUITY", "initial_dte": [30, 90]},
+  "LOW_DELTA_INCOME": {"status": "REPLAY_IMPLEMENTED", "asset_profile": "INDEX_PM_CASH", "symbols": ["SPX", "XSP"], "initial_dte": [0, 1]},
+  "SNIPER": {"status": "DEFINITION_ONLY", "asset_profile": "EQUITY", "initial_dte": [14, 30]},
+  "BULL_PUT_ROLLS": {"status": "DEFINITION_ONLY", "asset_profile": "EQUITY", "initial_dte": [30, 45]},
+  "EQUITY_WEEKLIES": {"status": "FUTURE_PROFILE", "asset_profile": "EQUITY", "requirements": ["verified weekly series", "liquid chain", "earnings and dividends", "early assignment and share settlement"]}
+}

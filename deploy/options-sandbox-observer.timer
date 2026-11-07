@@ -1,0 +1,11 @@
+[Unit]
+Description=Scan Strategy B research inputs during its Central Time entry window
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 09:25/1:00 America/Chicago
+OnCalendar=Mon..Fri *-*-* 10:*:00 America/Chicago
+OnCalendar=Mon..Fri *-*-* 11:00:00 America/Chicago
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
