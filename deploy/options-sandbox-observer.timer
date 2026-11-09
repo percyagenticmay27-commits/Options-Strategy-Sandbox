@@ -1,11 +1,16 @@
 [Unit]
-Description=Scan Strategy B research inputs during its Central Time entry window
+Description=Strategy B independent paper purchase and management scans
 
 [Timer]
-OnCalendar=Mon..Fri *-*-* 09:25/1:00 America/Chicago
-OnCalendar=Mon..Fri *-*-* 10:*:00 America/Chicago
-OnCalendar=Mon..Fri *-*-* 11:00:00 America/Chicago
-AccuracySec=1s
+# Two intentionally small entry batches near existing Robinhood snapshot refreshes;
+# an independent afternoon management check monitors any held paper spreads.
+OnCalendar=Mon..Fri *-*-* 09:50:00 America/Chicago
+OnCalendar=Mon..Fri *-*-* 10:50:00 America/Chicago
+OnCalendar=Mon..Fri *-*-* 14:25:00 America/Chicago
+OnCalendar=Mon..Fri *-*-* 14:30:00 America/Chicago
+AccuracySec=5s
+Persistent=false
+Unit=options-sandbox-observer.service
 
 [Install]
 WantedBy=timers.target

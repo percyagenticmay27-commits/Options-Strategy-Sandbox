@@ -102,3 +102,49 @@ same-day expirations only. It ranks candidates without opening positions.
 The offline replay remains the entry/exit simulator. Automatic paper fills
 and 1DTE evaluation require recurring fresh quotes and verified exit,
 expiration-session, and settlement coverage.
+
+## Autonomous Strategy B paper trading (November 9, 2026)
+
+The Strategy B sandbox now runs **local simulated purchases**, not just an
+observer. `scan_paper.py` is the supervised entry point. It uses the same
+fail-closed architecture as OPTION-001, without importing OPTION-001 trading
+rules or writing its files:
+
+1. Select the newest provider-published, read-only Robinhood research snapshot
+   from the sandbox and (as an optional read-only fallback) OPTION-001.
+2. Reject snapshots older than 60 seconds, stale index quotes, missing SPY
+   chart confirmation, incorrect Cboe exercise/settlement metadata, and option
+   quotes lacking current Greeks, IV, bid/ask or size.
+3. Recheck the independent official BLS/Fed blackout calendar and verified
+   Alpaca exchange session. No passed entry gates are fabricated.
+4. Keep the original experimental **0.10–0.15** versus **0.15–0.25** delta
+   strategies unchanged. Each has its own $5,000 simulated account and $100
+   combined SPX/XSP defined-risk ceiling; opening a spread requires TWO actual
+   fresh quote observations (the second has newer executable leg quotes).
+5. Save verified frames to `state/forward_frames.json` and recompute a durable
+   idempotent `state/paper_ledger.json` and `state/paper_events.json` containing
+   simulated BUY/SELL events, exit reasons, open exposure, P/L and win rates.
+   Missing settlement remains **pending** instead of inventing a realized gain.
+6. When anything essential is stale, atomically publish
+   `state/refresh_request.json` with `PENDING_CONNECTOR_REFRESH`, exit 66,
+   and do not open or close an unsupported simulated position.
+
+There are **zero real orders**: brokerage submission, broker execution and live
+trading are always disabled. The independent experimental script `replay.py`
+remains authoritative for strategy selection, fee model, technical gates,
+quote-to-fill timing, early exit triggers and settlement modeling.
+
+The installed user-systemd timer has FOUR daily weekday checks at 9:50 a.m.,
+10:50 a.m., 2:25 p.m. and 2:30 p.m. **America/Chicago**, not once per minute.
+The existing ChatGPT read-only Robinhood refresh task publishes two new quote
+batches where available and invokes the sandbox's local `scan_paper.py` after
+each. These scheduled local scans do not themselves possess Robinhood
+credentials or directly fetch the read-only connector: the explicit refresh
+request requires the external data publisher to respond. A fresh capture alone
+never guarantees an eligible trade, a fill, or a verified settlement.
+
+Smoke test: `python3 -m unittest discover -s tests -q` and
+`python3 scan_paper.py` (after hours, this must request fresh connector data and
+must not create a paper purchase). The simulator can be tested independently
+with `python3 run.py data/synthetic_xsp.json`; that fixture is NEVER used for
+scheduled purchases.

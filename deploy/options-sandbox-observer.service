@@ -1,10 +1,12 @@
 [Unit]
-Description=Strategy B paper research observer
+Description=Strategy B independent local paper purchase and risk management
+After=network-online.target
 
 [Service]
 Type=oneshot
 WorkingDirectory=%h/Options-Strategy-Sandbox
-ExecStart=/usr/bin/python3 observe.py --snapshot %h/Options-Strategy-Sandbox/state/robinhood_research.json --session %h/Trade-PMCC-Bot/inputs/alpaca_pmcc_research.json --cache %h/Options-Strategy-Sandbox/state/calendar.json --output %h/Options-Strategy-Sandbox/state/latest.json
+ExecStart=/usr/bin/python3 %h/Options-Strategy-Sandbox/scan_paper.py
 TimeoutStartSec=45s
 UMask=0077
-NoNewPrivileges=yes
+NoNewPrivileges=true
+PrivateTmp=true
