@@ -150,3 +150,40 @@ with `python3 run.py data/synthetic_xsp.json`; that fixture is NEVER used for
 scheduled purchases.
 
 The strategy entry window starts at **10:00 a.m. CT**, at least 30 minutes after OPTION-001's last scheduled 10:30 a.m. ET (9:30 a.m. CT) entry scan. The sandbox first probes OPTION-001's existing process-held `flock` lock without retaining it; a busy or inaccessible lock defers sandbox activity and prevents simulated entries or connector calls. Low Delta has a **$500 paper allocation**, and its experimental 0.15–0.25 comparison has an independent **$500 hypothetical accounting book** (not a second real allocation). Neither may commit more than $100 in simultaneous defined risk. The two books are comparisons, not two real accounts or broker orders.
+
+## Connector refresh-recovery: OPTION-001 pattern (November 10, 2026)
+
+`refresh_recovery.py` is the sandbox's local **publish → validate → resume**
+controller. It mirrors the *data-recovery protocol* used by OPTION-001 while
+leaving all sandbox indicator, spread selection and risk rules in `replay.py`.
+A connected authorized Robinhood **read-only** workflow obtains actual option
+instruments/quotes, SPX/XSP index levels, and SPY regular-session bars, then
+passes them as a unique provider-data batch to:
+
+```bash
+cd /home/tradebot/Options-Strategy-Sandbox
+PYTHONPATH=/home/tradebot/Trade-Option-Bot/src \
+ python3 refresh_recovery.py --input state/UNIQUE_FRESH_RAW_BATCH.json
+```
+
+It first defers if OPTION-001's current process lock is occupied. Otherwise it
+calls the existing metadata-aware `publish_snapshot.py` (atomic output),
+verifies the envelope and true original timestamps of leg/index quotes, runs
+`scan_paper.py`, and checks the new report's time and `feed_status=FRESH`.
+Successful cycles record `state/refresh_recovery.json` status `RESUMED` and
+clear stale refresh requests. Missing/stale data fails closed with
+`REFRESH_RETRY_REQUIRED` and a durable request. No broker credentials or live
+order endpoints exist in this path. No paper entry is authorized after 11 a.m.
+Central, but read-only recovery and management may run until the session ends.
+
+The connected Robinhood automation now collects fresh data at **10:20 a.m.
+and 2:20 p.m. Central** on trading weekdays and invokes this recovery command;
+it may obtain a second new quote batch during the same invocation if the first
+qualifies a position. This avoids per-minute ChatGPT calls. The local user
+systemd timer retains its own checks, which may correctly report stale input if
+no new authorized connector snapshot has arrived in the past 60 seconds.
+
+Live-market proof on Nov. 10: both a 1:23 p.m. Central and 1:25 p.m. Central
+management-only recovery returned `RESUMED`, verified current actual SPX/XSP
+quotes plus SPY bars, and added new forward observations. No positions existed,
+so the verified test did NOT exercise an actual held-leg exit or entry fill.
