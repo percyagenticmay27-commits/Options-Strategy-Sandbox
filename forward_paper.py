@@ -60,7 +60,9 @@ def forward_cycle(root,frames,now,feed,*,source='ROBINHOOD_MCP_RESEARCH'):
     for name,model in result['profiles'].items():
         trades=model['trades'];closed=[x for x in trades if x['status']=='CLOSED']
         opened=[x for x in trades if x['status']!='CLOSED']
-        profiles[name]={'short_delta_min':model['short_delta_min'],
+        profiles[name]={'starting_capital':result['capital'],
+          'book_type':'PAPER_ALLOCATION' if name=='low_delta' else 'HYPOTHETICAL_COMPARISON',
+          'short_delta_min':model['short_delta_min'],
           'short_delta_max':model['short_delta_max'],
           'open_count':len(opened),'completed_count':len(closed),
           'realized_pnl':str(sum((Decimal(x['pnl']) for x in closed),Decimal(0))),
@@ -91,6 +93,9 @@ def forward_cycle(root,frames,now,feed,*,source='ROBINHOOD_MCP_RESEARCH'):
     if added:atomic(event_file,{'schema_version':'1.0','events':past+added})
     filled=sum(sum(1 for x in m['trades']) for m in profiles.values())
     report={'schema_version':'1.0','strategy_id':'SANDBOX_STRATEGY_B',
+       'low_delta_allocated_capital':result['capital'],
+       'comparison_hypothetical_capital':result['capital'],
+       'max_defined_risk_per_book':result['combined_risk_limit'],
        'generated_at_utc':iso(now),'mode':'AUTONOMOUS_PAPER_SIMULATION',
        'status':'PAPER_ACTIVE' if feed=='FRESH' else 'PENDING_CONNECTOR_REFRESH',
        'feed_status':feed,'snapshot_source':source,

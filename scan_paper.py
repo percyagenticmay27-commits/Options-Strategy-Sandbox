@@ -20,6 +20,26 @@ from replay import quotes_at,spot_at,timestamp,iso,recent
 ROOT=Path(__file__).resolve().parent
 SOURCE='ROBINHOOD_MCP_RESEARCH'
 
+# Respect OPTION-001 as the higher-priority service. Probe its existing flock
+# without retaining ownership, so we never block the production Option Bot.
+OPTION_LOCK=Path('/run/user') / str(__import__('os').getuid()) / 'trade-option-bot.lock'
+
+def option_bot_idle():
+    try:
+        with OPTION_LOCK.open('a+') as handle:
+            try:
+                fcntl.flock(handle.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+            except BlockingIOError:
+                return False
+            finally:
+                # The lock is released when the descriptor closes.
+                pass
+        return True
+    except OSError:
+        # Cannot verify Option Bot lock authority: fail closed.
+        return False
+
+
 REQUIRED_QUOTE_FIELDS=("bid_price","ask_price","bid_size","ask_size","mark_price",
     "delta","gamma","theta","vega","rho","implied_volatility","volume","open_interest")
 
@@ -61,6 +81,12 @@ def choose_snapshot(payloads,now):
 
 def execute_scan(root,now,snapshots,session,calendar):
     root=Path(root)
+    if not option_bot_idle():
+        report={'status':'OPTION_BOT_PRIORITY_DEFERRED','generated_at_utc':iso(now),
+             'paper_entries':0,'broker_submissions':0,'paper_trade_mode':True,
+             'order_submission_enabled':False,'reason':'OPTION_001_LOCK_BUSY_OR_UNAVAILABLE'}
+        atomic(root/'state/priority_deferred.json',report)
+        return report
     chosen=choose_snapshot(snapshots,now)
     status='SNAPSHOT_STALE_OR_FUTURE'
     frames=[]

@@ -1,6 +1,6 @@
 # Options Strategy Sandbox 0.1.4
 
-Standalone paper research for Strategy B, Low-Delta Income. The replay compares 0.10–0.15 short delta with a 0.15–0.25 comparison band targeting 0.175. The comparison represents the existing delta preference only. Both profiles run the same experimental rules and see the same observations. Each has its own $5,000 simulated account and combined $100 open defined-risk budget across SPX and XSP, including costs.
+Standalone paper research for Strategy B, Low-Delta Income. The replay compares 0.10–0.15 short delta with a 0.15–0.25 comparison band targeting 0.175. The comparison represents the existing delta preference only. Both profiles run the same experimental rules and see the same observations. Each has its own $500 simulated account and combined $100 open defined-risk budget across SPX and XSP, including costs.
 
 The project uses Python 3.11+ and the standard library. It runs entirely from this directory with local input files and local paper ledgers. It has no production imports, broker dependencies, credentials, or order endpoints.
 
@@ -70,7 +70,7 @@ Supply a JSON object with `kind` (`HISTORICAL` or `SYNTHETIC_FIXTURE`), `source`
 
 ## Experimental rules
 
-Use a verified open session and allow entry signals and simulated fills from 9:30 a.m. to before 11:00 a.m. Central. The 10:30 a.m. Central cutoff is an independent shadow replay on the same inputs for each delta profile. Its separate ledger results are observational. Bullish signals qualify for OTM put spreads and verified neutral range signals qualify for iron condors. Use one contract per leg and at most two entries per session. The entry order expires after 60 seconds. A simulated fill requires newer executable quotes for every leg, a still-eligible short delta and strike, and the original credit or better. Sell at bid and buy at ask. Quotes older than 60 seconds and future quotes are rejected. Use a 15% minimum net return on maximum loss. Reserve $0.65 per leg per side, including the exit fee reserve on settlement.
+Use a verified open session and allow entry signals and simulated fills from 10:00 a.m. to before 11:00 a.m. Central, after OPTION-001's last scheduled entry scan. The 10:30 a.m. Central cutoff is an independent shadow replay on the same inputs for each delta profile. Its separate ledger results are observational. Bullish signals qualify for OTM put spreads and verified neutral range signals qualify for iron condors. Use one contract per leg and at most two entries per session. The entry order expires after 60 seconds. A simulated fill requires newer executable quotes for every leg, a still-eligible short delta and strike, and the original credit or better. Sell at bid and buy at ask. Quotes older than 60 seconds and future quotes are rejected. Use a 15% minimum net return on maximum loss. Reserve $0.65 per leg per side, including the exit fee reserve on settlement.
 
 A tested short strike, buyback cost at 2× opening credit, or 50% gross credit capture queues an exit. On the expiration day, remaining positions queue an exit five minutes before the 2:30 p.m. Central deadline or an earlier verified expiration-day cutoff. A position that misses the deadline is reported as a breach and remains eligible for exit attempts until trading ends. Unclosed expired positions require verified cash settlement. Execution requires newer quotes before the verified trading cutoff. An invalid executable exit debit outside the structure’s payoff range remains pending. The report exposes missing marks and pending settlement. Maximum marked drawdown covers available complete observations and does not estimate unobserved periods. Reported realized P&L includes simulated costs.
 
@@ -118,7 +118,7 @@ rules or writing its files:
 3. Recheck the independent official BLS/Fed blackout calendar and verified
    Alpaca exchange session. No passed entry gates are fabricated.
 4. Keep the original experimental **0.10–0.15** versus **0.15–0.25** delta
-   strategies unchanged. Each has its own $5,000 simulated account and $100
+   strategies unchanged. Each has its own $500 simulated account and $100
    combined SPX/XSP defined-risk ceiling; opening a spread requires TWO actual
    fresh quote observations (the second has newer executable leg quotes).
 5. Save verified frames to `state/forward_frames.json` and recompute a durable
@@ -134,9 +134,9 @@ trading are always disabled. The independent experimental script `replay.py`
 remains authoritative for strategy selection, fee model, technical gates,
 quote-to-fill timing, early exit triggers and settlement modeling.
 
-The installed user-systemd timer has FOUR daily weekday checks at 9:50 a.m.,
-10:50 a.m., 2:25 p.m. and 2:30 p.m. **America/Chicago**, not once per minute.
-The existing ChatGPT read-only Robinhood refresh task publishes two new quote
+The installed user-systemd timer has FOUR daily weekday checks at 10:10 a.m.,
+10:25 a.m., 2:25 p.m. and 2:30 p.m. **America/Chicago**, not once per minute.
+The existing ChatGPT read-only Robinhood refresh task is scheduled once at 10:05 a.m. Central and attempts two new quote
 batches where available and invokes the sandbox's local `scan_paper.py` after
 each. These scheduled local scans do not themselves possess Robinhood
 credentials or directly fetch the read-only connector: the explicit refresh
@@ -148,3 +148,5 @@ Smoke test: `python3 -m unittest discover -s tests -q` and
 must not create a paper purchase). The simulator can be tested independently
 with `python3 run.py data/synthetic_xsp.json`; that fixture is NEVER used for
 scheduled purchases.
+
+The strategy entry window starts at **10:00 a.m. CT**, at least 30 minutes after OPTION-001's last scheduled 10:30 a.m. ET (9:30 a.m. CT) entry scan. The sandbox first probes OPTION-001's existing process-held `flock` lock without retaining it; a busy or inaccessible lock defers sandbox activity and prevents simulated entries or connector calls. Low Delta has a **$500 paper allocation**, and its experimental 0.15–0.25 comparison has an independent **$500 hypothetical accounting book** (not a second real allocation). Neither may commit more than $100 in simultaneous defined risk. The two books are comparisons, not two real accounts or broker orders.

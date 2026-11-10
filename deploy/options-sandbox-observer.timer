@@ -2,10 +2,11 @@
 Description=Strategy B independent paper purchase and management scans
 
 [Timer]
-# Two intentionally small entry batches near existing Robinhood snapshot refreshes;
+# Sandbox starts after OPTION-001 final 10:30 ET / 09:30 CT scan.
+# Two independent entry checks after the later Robinhood refreshes;
 # an independent afternoon management check monitors any held paper spreads.
-OnCalendar=Mon..Fri *-*-* 09:50:00 America/Chicago
-OnCalendar=Mon..Fri *-*-* 10:50:00 America/Chicago
+OnCalendar=Mon..Fri *-*-* 10:10:00 America/Chicago
+OnCalendar=Mon..Fri *-*-* 10:25:00 America/Chicago
 OnCalendar=Mon..Fri *-*-* 14:25:00 America/Chicago
 OnCalendar=Mon..Fri *-*-* 14:30:00 America/Chicago
 AccuracySec=5s

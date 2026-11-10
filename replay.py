@@ -11,10 +11,10 @@ ET = ZoneInfo("America/New_York")
 CT = ZoneInfo("America/Chicago")
 D = Decimal
 ZERO = D("0")
-CAPITAL = D("5000")
+CAPITAL = D("500")
 RISK_CAP = D("100")
 MAX_AGE = timedelta(seconds=60)
-ENTRY_START = time(9, 30)
+ENTRY_START = time(10, 0)
 ENTRY_CUTOFF = time(11)
 OBSERVED_CUTOFF = time(10, 30)
 EXIT_CUTOFF = time(14, 30)
@@ -466,7 +466,7 @@ def compare(dataset):
         "capital": money(CAPITAL), "combined_risk_limit": money(RISK_CAP),
         "assumptions": {"paper_only": True, "quantity": 1, "fee_per_leg_per_side": str(FEE),
                         "minimum_net_return": str(MIN_RETURN), "max_quote_age_seconds": MAX_AGE.seconds,
-                        "entry_order_ttl_seconds": MAX_AGE.seconds, "entry_window_central": "09:30–11:00",
+                        "entry_order_ttl_seconds": MAX_AGE.seconds, "entry_window_central": "10:00–11:00",
                         "0dte_exit_attempt_central": "14:25", "0dte_exit_deadline_central": "14:30",
                         "0dte_exit_lead_minutes": EXIT_LEAD.seconds // 60,
                         "max_daily_entries": 2, "stop_credit_multiple": 2, "profit_capture_fraction": ".50"},
@@ -478,7 +478,7 @@ def compare(dataset):
         "comparison_scope": "Matched delta-band experiment. The comparison profile is a delta-filter proxy.",
         "profiles": profiles_by_cutoff[ENTRY_CUTOFF],
         "cutoff_observation": {
-            "mode": "SHADOW_REPLAY", "entry_window_central": "09:30–10:30",
+            "mode": "SHADOW_REPLAY", "entry_window_central": "10:00–10:30",
             "profiles": profiles_by_cutoff[OBSERVED_CUTOFF],
         },
     }

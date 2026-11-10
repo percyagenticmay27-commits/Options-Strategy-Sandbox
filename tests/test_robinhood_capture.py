@@ -55,15 +55,15 @@ class RobinhoodCaptureTest(unittest.TestCase):
         from robinhood_capture import quote_frames
 
         opened = datetime(2026, 11, 6, 14, 30, tzinfo=timezone.utc)
-        now = opened + timedelta(minutes=65, seconds=20)
+        now = opened + timedelta(minutes=95, seconds=20)
         session = {"date": "2026-11-06", "open": iso(opened),
                    "close": iso(opened + timedelta(hours=6, minutes=30)), "verified": True}
         bars = [
             {"begins_at": iso(opened + timedelta(minutes=5*i)), "session": "reg",
-             "close_price": 100 if i < 12 else 103 if i == 12 else 80,
-             "high_price": 100 if i < 12 else 103 if i == 12 else 80,
-             "low_price": 100 if i < 12 else 103 if i == 12 else 80, "volume": 1000}
-            for i in range(14)
+             "close_price": 100 if i < 18 else 103 if i == 18 else 80,
+             "high_price": 100 if i < 18 else 103 if i == 18 else 80,
+             "low_price": 100 if i < 18 else 103 if i == 18 else 80, "volume": 1000}
+            for i in range(20)
         ]
         batch = {"at": iso(now), "quotes": [],
                  "index_quotes": [{"symbol": "XSP", "instrument_id": "index",
