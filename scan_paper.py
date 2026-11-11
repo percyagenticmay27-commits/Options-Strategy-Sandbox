@@ -14,6 +14,7 @@ from datetime import datetime,timezone
 from pathlib import Path
 from event_calendar import clearance,refresh
 from forward_paper import forward_cycle,atomic,load
+from sniper_cycle import run as sniper_run
 from observe import frames_from_snapshot
 from replay import quotes_at,spot_at,timestamp,iso,recent
 
@@ -117,6 +118,20 @@ def execute_scan(root,now,snapshots,session,calendar):
                 for f in good:f.update(event_clear=True,calendar_status='CLEAR')
                 frames=good
     report=forward_cycle(root,frames,now,status,source=SOURCE)
+    # Independent 14-30 DTE equity strategy. Runs an evaluation on every
+    # post-OPTION-001 sandbox cycle even if the index VWAP setup failed.
+    # Equity quotes come from a separate read-only provider snapshot; they
+    # MUST NOT borrow SPX/XSP metadata, price, or event evidence.
+    sniper=sniper_run(root,load(root/'state/sniper_equity_research.json',{}),now)
+    report['sniper']={
+       'status':sniper['latest_evaluation']['status'],
+       'reason':sniper['latest_evaluation']['reason'],
+       'symbol':sniper['latest_evaluation'].get('symbol'),
+       'candidate':sniper['latest_evaluation'].get('status')=='CANDIDATE',
+       'open_positions':len(sniper['open']),
+       'completed_positions':len(sniper['completed']),
+       'new_paper_events':len(sniper['new_events']),
+       'paper_only':True,'broker_submissions':0}
     report['candidate_symbols']=[f['symbol'] for f in frames]
     report['metadata_rejections']=invalid_metadata if chosen else 0
     report['refresh_required']=report['status']=='PENDING_CONNECTOR_REFRESH'

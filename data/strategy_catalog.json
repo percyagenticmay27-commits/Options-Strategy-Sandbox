@@ -1,7 +1,61 @@
 {
-  "ZEBRA": {"status": "DEFINITION_ONLY", "asset_profile": "EQUITY", "initial_dte": [30, 90]},
-  "LOW_DELTA_INCOME": {"status": "REPLAY_IMPLEMENTED", "asset_profile": "INDEX_PM_CASH", "symbols": ["SPX", "XSP"], "initial_dte": [0, 1]},
-  "SNIPER": {"status": "DEFINITION_ONLY", "asset_profile": "EQUITY", "initial_dte": [14, 30]},
-  "BULL_PUT_ROLLS": {"status": "DEFINITION_ONLY", "asset_profile": "EQUITY", "initial_dte": [30, 45]},
-  "EQUITY_WEEKLIES": {"status": "FUTURE_PROFILE", "asset_profile": "EQUITY", "requirements": ["verified weekly series", "liquid chain", "earnings and dividends", "early assignment and share settlement"]}
+  "ZEBRA": {
+    "status": "DEFINITION_ONLY",
+    "asset_profile": "EQUITY",
+    "initial_dte": [
+      30,
+      90
+    ]
+  },
+  "LOW_DELTA_INCOME": {
+    "status": "REPLAY_IMPLEMENTED",
+    "asset_profile": "INDEX_PM_CASH",
+    "symbols": [
+      "SPX",
+      "XSP"
+    ],
+    "initial_dte": [
+      0,
+      1
+    ]
+  },
+  "SNIPER": {
+    "status": "PAPER_ENGINE_IMPLEMENTED_DATA_FEED_PENDING",
+    "asset_profile": "EQUITY",
+    "symbols": [
+      "SPY",
+      "QQQ"
+    ],
+    "initial_dte": [
+      14,
+      30
+    ],
+    "structure": [
+      "CALL_DEBIT_SPREAD",
+      "PUT_DEBIT_SPREAD"
+    ],
+    "signal": "FIVE_MINUTE_BREAKOUT_OR_BREAKDOWN_CONFIRMED_BY_VWAP_AND_SLOPING_EMA20",
+    "max_book_allocation_usd": 500,
+    "max_simultaneous_defined_risk_usd": 100,
+    "paper_execution": "TWO_DISTINCT_VERIFIED_QUOTE_BATCHES_REQUIRED",
+    "assignment_handling": "CLOSE_PRIOR_TO_EXPIRATION_WITH_VERIFIED_QUOTES_OR_FLAG_UNRESOLVED"
+  },
+  "BULL_PUT_ROLLS": {
+    "status": "DEFINITION_ONLY",
+    "asset_profile": "EQUITY",
+    "initial_dte": [
+      30,
+      45
+    ]
+  },
+  "EQUITY_WEEKLIES": {
+    "status": "FUTURE_PROFILE",
+    "asset_profile": "EQUITY",
+    "requirements": [
+      "verified weekly series",
+      "liquid chain",
+      "earnings and dividends",
+      "early assignment and share settlement"
+    ]
+  }
 }

@@ -15,7 +15,7 @@ class RefreshRecoveryTests(unittest.TestCase):
   self.root=Path(self.tmp.name)
  def test_successful_published_batch_resumes_once_and_records_result(self):
   published=Mock();validate=Mock(return_value=(True,'CURRENT'))
-  ran=Mock(return_value={'status':'PAPER_ACTIVE','paper_entries':0,'broker_submissions':0,'generated_at_utc':NOW.isoformat(),'feed_status':'FRESH'})
+  ran=Mock(return_value={'status':'PAPER_ACTIVE','paper_entries':0,'broker_submissions':0,'generated_at_utc':datetime.now(timezone.utc).isoformat(),'feed_status':'FRESH'})
   result=recover_cycle(self.root,now=NOW,publish=published,validate=validate,run=ran)
   self.assertEqual(result['status'],'RESUMED')
   self.assertEqual(result['mode'],'MANAGEMENT_ONLY')
@@ -35,7 +35,7 @@ class RefreshRecoveryTests(unittest.TestCase):
   self.assertEqual(result['status'],'REFRESH_RETRY_REQUIRED')
   run.assert_not_called()
  def test_a_second_stale_scan_is_not_reported_as_success(self):
-  ran=Mock(return_value={'status':'PENDING_CONNECTOR_REFRESH','paper_entries':0,'broker_submissions':0,'generated_at_utc':NOW.isoformat(),'feed_status':'FRESH'})
+  ran=Mock(return_value={'status':'PENDING_CONNECTOR_REFRESH','paper_entries':0,'broker_submissions':0,'generated_at_utc':datetime.now(timezone.utc).isoformat(),'feed_status':'FRESH'})
   result=recover_cycle(self.root,now=NOW,publish=Mock(),validate=Mock(return_value=(True,'CURRENT')),run=ran)
   self.assertEqual(result['status'],'REFRESH_RETRY_REQUIRED')
   self.assertEqual(ran.call_count,1)
