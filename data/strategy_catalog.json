@@ -20,7 +20,7 @@
     ]
   },
   "SNIPER": {
-    "status": "PAPER_ENGINE_IMPLEMENTED_DATA_FEED_PENDING",
+    "status": "PAUSED_SUPERSEDED_BY_SNIPER_BWB_0DTE",
     "asset_profile": "EQUITY",
     "symbols": [
       "SPY",
@@ -57,5 +57,33 @@
       "earnings and dividends",
       "early assignment and share settlement"
     ]
+  },
+  "BWB_0DTE": {
+    "status": "PAPER_ENGINE_IMPLEMENTED_PROVIDER_CONTEXT_PENDING",
+    "asset_profile": "INDEX_PM_CASH",
+    "symbols": [
+      "SPX",
+      "XSP"
+    ],
+    "dte": [
+      0,
+      0
+    ],
+    "legs": "BUY1_SELL2_BUY1_UNEQUAL_WINGS",
+    "max_purchase_debit_usd": 500,
+    "max_defined_risk_usd": 500,
+    "opening_window_central": "10:00-12:30",
+    "exit_deadline_central": "14:25",
+    "signals": [
+      "5m_VWAP",
+      "5m_EMA50_SLOPE",
+      "volume_by_bar_proxy_target",
+      "verified_gex_optional"
+    ],
+    "execution": "TWO_SEPARATE_NEWER_QUOTE_BATCHES_REQUIRED",
+    "ledger": "state/bwb_paper_ledger.json",
+    "paper_only": true,
+    "broker_orders_allowed": false,
+    "display_name": "SNIPER_BWB_0DTE"
   }
 }

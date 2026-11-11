@@ -35,10 +35,10 @@ class ScanPaperIntegrationTests(unittest.TestCase):
   self.assertEqual(r['paper_entries'],0)
   self.assertEqual(r['status'],'PENDING_CONNECTOR_REFRESH')
 
- def test_sniper_is_reported_daily_when_index_entry_blocked(self):
+ def test_sniper_bwb_reports_daily_when_index_entry_blocked(self):
   from datetime import timezone
   s={'date':'2026-11-09','open':'2026-11-09T14:30:00Z','close':'2026-11-09T21:00:00Z','verified':True,'source':'ALPACA_CALENDAR','is_trading_day':True}
   result=execute_scan(self.root,NOW,[],s,{'verified_at':NOW.isoformat()})
-  self.assertEqual(result['sniper']['status'],'DATA_UNAVAILABLE')
-  self.assertEqual(result['sniper']['reason'],'SNIPER_EQUITY_RESEARCH_NOT_PUBLISHED')
-  self.assertTrue((self.root/'state/sniper_daily_evaluation.json').exists())
+  self.assertEqual(result['sniper']['pilot'],'SNIPER_BWB_0DTE')
+  self.assertEqual(result['sniper']['evaluations'][0]['status'],'DATA_UNAVAILABLE')
+  self.assertTrue((self.root/'state/bwb_daily_evaluation.json').exists())
