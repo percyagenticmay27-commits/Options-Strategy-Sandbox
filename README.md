@@ -237,3 +237,29 @@ Corporate action proof additionally requires a timestamped `events.verified_at_u
 Sniper paper trade is rejected. ETF earnings exemption does not waive an
 issuer-distribution/ex-dividend date check. A future management quote failure
 must never be counted as a successful simulated sale.
+
+## Refresh-first scheduled-cycle gate (November 12, 2026)
+
+The installed `options-sandbox-observer.service` now runs `scheduled_cycle.py`,
+**not** an unconditional `scan_paper.py`. If either `state/refresh_request.json`
+or the last Sandbox report says `PENDING_CONNECTOR_REFRESH`, the scheduled
+service refuses to re-run the scanner against the stale file. It writes
+`state/scheduled_cycle_latest.json` with `scan_started: false` and
+`FETCH_FRESH_READ_ONLY_ROBINHOOD_DATA_BEFORE_NEXT_SCAN` until the connected
+read-only Robinhood collector acquires a genuinely new provider batch and
+atomically publishes it to `state/incoming_robinhood_batch.json`.
+
+The new raw batch must have original provider timestamps, a generated-at time
+newer than the refresh request, SPX/XSP symbol payloads, verified research-only
+provenance, and age <=60 seconds. Once present, `scheduled_cycle.py` calls
+`refresh_recovery.py`: **publish -> validate fresh individual index/leg quotes,
+metadata, exchange session -> one guarded paper scan**. If any step fails,
+keep the refresh request open and do NOT re-use the batch for a later fill.
+The existing `Refresh Strategy B Quotes` connected task was updated to provide
+this new batch and to fetch a second genuinely newer quote batch if a spread
+is pending; the local systemd unit has no Robinhood network credentials and
+cannot independently fetch it. No broker order submission is permitted.
+
+Use `python3 scheduled_cycle.py` to check the gate. Direct `scan_paper.py` is
+still available for explicitly validated connector recovery and tests, but
+must not be used as the routine timer command while refresh is pending.
