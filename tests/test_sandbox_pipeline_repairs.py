@@ -2,7 +2,7 @@ import json,tempfile,unittest
 from datetime import datetime,timezone,timedelta
 from pathlib import Path
 from unittest.mock import patch
-from replay import entry_gate_detail
+from replay import entry_gate_detail,selection_diagnostics,quotes_at,PROFILES
 from forward_paper import forward_cycle
 from tests.test_replay import frame
 from scan_paper import execute_scan
@@ -43,6 +43,12 @@ class PipelineRegressionTests(unittest.TestCase):
   self.assertEqual(low['open_count'],1)
   self.assertEqual(comparison['open_count'],1)
   self.assertEqual(res['broker_submissions'],0)
+ def test_missing_delta_band_has_exact_rejection(self):
+  f=frame(0)
+  from replay import RISK_CAP
+  detail=selection_diagnostics(f,self.now,{},PROFILES['low_delta'],RISK_CAP)
+  self.assertIn('NO_SHORT_CONTRACT_IN_DELTA_BAND',detail['reasons'])
+  self.assertEqual(detail['shorts_in_delta_band'],0)
  def test_stale_data_runs_audit_not_fake_trade(self):
   self.assertEqual(forward_cycle(self.root,[],self.now,'SNAPSHOT_STALE_OR_FUTURE')['paper_entries'],0)
   self.assertEqual(json.loads((self.root/'state/paper_book_low_delta.json').read_text())['open_count'],0)

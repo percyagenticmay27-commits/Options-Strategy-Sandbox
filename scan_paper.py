@@ -19,7 +19,7 @@ from bwb_context import context_for
 from regime_shadow import observe as observe_regime_shadow
 from shadow_comparison import publish as publish_shadow_comparison
 from observe import frames_from_snapshot
-from replay import quotes_at,spot_at,timestamp,iso,recent,entry_gate_detail,PROFILES,selection,RISK_CAP,ENTRY_START,ENTRY_CUTOFF,CT
+from replay import quotes_at,spot_at,timestamp,iso,recent,entry_gate_detail,PROFILES,selection,selection_diagnostics,RISK_CAP,ENTRY_START,ENTRY_CUTOFF,CT
 
 ROOT=Path(__file__).resolve().parent
 SOURCE='ROBINHOOD_MCP_RESEARCH'
@@ -136,7 +136,8 @@ def execute_scan(root,now,snapshots,session,calendar,bwb_snapshots=None):
                 proposed=selection(f,now,quotes,band,RISK_CAP)
                 if proposed is None:
                     item['profiles'][name]={'status':'NO_ELIGIBLE_SPREAD',
-                        'reason_codes':['DELTA_STRIKE_LIQUIDITY_OR_MIN_RETURN'],
+                        'reason_codes':selection_diagnostics(f,now,quotes,band,RISK_CAP)['reasons'],
+                        'diagnostics':selection_diagnostics(f,now,quotes,band,RISK_CAP),
                         'delta_min':str(band[0]),'delta_max':str(band[1])}
                 else:
                     spread,credit=proposed

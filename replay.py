@@ -233,6 +233,47 @@ def eligible_short(q, spot, band):
             and (q.contract.strike < spot if q.contract.right == "P" else q.contract.strike > spot))
 
 
+def selection_diagnostics(frame, now, quotes, band, remaining):
+    """Audit candidate coverage without changing the executable selector."""
+    spot=spot_at(frame,now)
+    if spot is None:
+        return {'status':'DATA_UNAVAILABLE','reasons':['FRESH_SPOT_UNAVAILABLE']}
+    day=now.astimezone(ET).date()
+    shorts=[q for q in quotes.values() if q.delta is not None and
+        eligible_short(q,spot,band) and 0 <= (q.contract.expiry-day).days <= 1 and
+        (frame.get('direction')=='NEUTRAL' or q.contract.right=='P')]
+    valid_shorts=[q for q in shorts if q.bid_size>=1 and q.bid>0]
+    all_wings=0; positive_credit=0; risk_pass=0; return_pass=0
+    for short in valid_shorts:
+        for long in quotes.values():
+            s=short.contract;l=long.contract
+            if (s.series!=l.series or s.right!=l.right or
+                (s.right=='P' and l.strike>=s.strike) or
+                (s.right=='C' and l.strike<=s.strike) or long.ask_size<1):continue
+            all_wings+=1
+            credit=short.bid-long.ask
+            if credit<=0:continue
+            positive_credit+=1
+            spread=Spread((s,),(l,))
+            if not 0<credit<spread.width:continue
+            profit,loss=economics(spread,credit)
+            if 0<loss<=remaining:risk_pass+=1
+            if 0<loss<=remaining and profit>=MIN_RETURN*loss:return_pass+=1
+    reasons=[]
+    if not shorts:reasons.append('NO_SHORT_CONTRACT_IN_DELTA_BAND')
+    elif not valid_shorts:reasons.append('SHORT_CONTRACT_NO_EXECUTABLE_BID_OR_SIZE')
+    if valid_shorts and not all_wings:reasons.append('PROTECTIVE_WING_UNAVAILABLE')
+    if all_wings and not positive_credit:reasons.append('NONPOSITIVE_NATURAL_CREDIT')
+    if positive_credit and not risk_pass:reasons.append('MAX_DEFINED_RISK_EXCEEDED_OR_INVALID')
+    if risk_pass and not return_pass:reasons.append('PROFIT_TO_MAX_LOSS_BELOW_15_PERCENT')
+    if not reasons and not return_pass:reasons.append('NO_FULLY_ELIGIBLE_SPREAD')
+    return {'status':'EVALUATED','reasons':reasons,'shorts_in_delta_band':len(shorts),
+      'liquid_shorts':len(valid_shorts),'protective_wing_pairs':all_wings,
+      'positive_credit_pairs':positive_credit,'pairs_under_risk_limit':risk_pass,
+      'pairs_meeting_minimum_return':return_pass,'max_risk':str(remaining),
+      'required_return_to_risk':str(MIN_RETURN)}
+
+
 def selection(frame, now, quotes, band, remaining):
     target = band[2]
     spot = spot_at(frame, now)
