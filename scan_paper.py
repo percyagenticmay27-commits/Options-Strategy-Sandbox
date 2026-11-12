@@ -19,7 +19,7 @@ from bwb_context import context_for
 from regime_shadow import observe as observe_regime_shadow
 from shadow_comparison import publish as publish_shadow_comparison
 from observe import frames_from_snapshot
-from replay import quotes_at,spot_at,timestamp,iso,recent
+from replay import quotes_at,spot_at,timestamp,iso,recent,entry_gate_detail,PROFILES,selection,RISK_CAP,ENTRY_START,ENTRY_CUTOFF,CT
 
 ROOT=Path(__file__).resolve().parent
 SOURCE='ROBINHOOD_MCP_RESEARCH'
@@ -83,7 +83,7 @@ def choose_snapshot(payloads,now):
         except (KeyError,TypeError,AttributeError,ValueError):continue
     return max(valid,key=lambda x:x[0])[1] if valid else None
 
-def execute_scan(root,now,snapshots,session,calendar):
+def execute_scan(root,now,snapshots,session,calendar,bwb_snapshots=None):
     root=Path(root)
     if not option_bot_idle():
         report={'status':'OPTION_BOT_PRIORITY_DEFERRED','generated_at_utc':iso(now),
@@ -120,11 +120,73 @@ def execute_scan(root,now,snapshots,session,calendar):
             else:
                 for f in good:f.update(event_clear=True,calendar_status='CLEAR')
                 frames=good
+    # Per-cycle coverage and exact reasons are visible even if no spread fills.
+    # Each profile is evaluated separately on the SAME verified frames; no
+    # synthetic quotes, relaxed risk limits or replacement main-bot data.
+    strategy_audit={}
+    for f in frames:
+        quotes=quotes_at(f,now)
+        gate=entry_gate_detail(f,now)
+        item={'symbol':f['symbol'],'at':iso(now),'usable_quotes':len(quotes),
+              'gate':gate,'profiles':{},'paper_only':True}
+        for name,band in PROFILES.items():
+            if gate['primary']:
+                item['profiles'][name]={'status':'BLOCKED','reason_codes':gate['reasons']}
+            else:
+                proposed=selection(f,now,quotes,band,RISK_CAP)
+                if proposed is None:
+                    item['profiles'][name]={'status':'NO_ELIGIBLE_SPREAD',
+                        'reason_codes':['DELTA_STRIKE_LIQUIDITY_OR_MIN_RETURN'],
+                        'delta_min':str(band[0]),'delta_max':str(band[1])}
+                else:
+                    spread,credit=proposed
+                    from replay import economics
+                    profit,loss=economics(spread,credit)
+                    item['profiles'][name]={'status':'ELIGIBLE_PENDING_SECOND_QUOTE',
+                        'short_strikes':[str(x.strike) for x in spread.shorts],
+                        'long_strikes':[str(x.strike) for x in spread.longs],
+                        'credit':str(credit),'maximum_loss':str(loss),'maximum_profit':str(profit)}
+        strategy_audit[f['symbol']]=item
+    if not frames:
+        strategy_audit={'status':'DATA_UNAVAILABLE','reason':status,
+                        'required':'FRESH_SPX_XSP_INDEX_QUOTES_OPTION_CONTRACTS_COMPLETED_SPY_5MIN_BARS'}
+    atomic(root/'state/strategy_evaluation_audit.json',
+           {'generated_at_utc':iso(now),'feed_status':status,'symbols':strategy_audit,
+            'paper_only':True,'broker_submissions':0})
+    report_status_reason=status
     # Append independent BWB higher-timeframe/volume-by-bar context from the
     # same *verified* provider payload, without changing Low Delta signals.
     report=forward_cycle(root,frames,now,status,source=SOURCE)
-    bwb_frames=[{**f,'bwb_context':context_for(f,cleaned if chosen else {},now)} for f in frames]
+    # BWB can consume a separately verified and newly refreshed read-only
+    # research snapshot. It is not constrained by Low Delta's UP-only gate.
+    bwb_chosen=choose_snapshot(bwb_snapshots or [],now) if bwb_snapshots else chosen
+    bwb_source='INDEPENDENT_BWB_SNAPSHOT' if bwb_snapshots and bwb_chosen else 'SHARED_VERIFIED_SNAPSHOT'
+    if bwb_chosen is chosen:
+        bwb_frames=frames
+    elif bwb_chosen:
+        bwb_clean=deepcopy(bwb_chosen)
+        for symbol,records in bwb_clean.get('symbols',{}).items():
+            if isinstance(records,dict) and isinstance(records.get('contracts'),list):
+                records['contracts']=[r for r in records['contracts'] if isinstance(r,dict) and contract_metadata_current(r,now)]
+        bwb_frames,bwb_status=frames_from_snapshot(bwb_clean,session,now)
+        if bwb_status=='FRESH' and clearance(calendar,now)['status']=='CLEAR':
+            bwb_frames=[{**f,'event_clear':True,'calendar_status':'CLEAR'} for f in bwb_frames
+                       if quotes_at(f,now) and spot_at(f,now) is not None]
+        else:bwb_frames=[]
+    else:
+        bwb_frames=[]
+    bwb_frames=[{**f,'bwb_context':context_for(f,bwb_chosen or {},now)} for f in bwb_frames]
     bwb=bwb_run(root,bwb_frames,now)
+    bwb_coverage={f['symbol']:{'context_ready':f['bwb_context'].get('ready',False),
+        'context_reason':f['bwb_context'].get('reason'),
+        'fresh_option_quotes':len(quotes_at(f,now)),
+        'fresh_index_spot':spot_at(f,now) is not None,
+        'source':bwb_source} for f in bwb_frames}
+    if not bwb_coverage:
+        bwb_coverage={'status':'DATA_UNAVAILABLE','reason':status,
+            'required':'INDEPENDENT_SPX_XSP_CHAIN_AND_CURRENT_53_BAR_SPY_CONTEXT'}
+    atomic(root/'state/bwb_coverage_audit.json',
+          {'at':iso(now),'symbols':bwb_coverage,'paper_only':True,'broker_submissions':0})
     report['bwb_0dte']={'strategy':'BWB_0DTE',
        'purchase_limit_usd':'500.00','max_defined_risk_usd':'500.00',
        'evaluations':[{'symbol':r.get('symbol'),'status':r.get('status'),
@@ -141,6 +203,8 @@ def execute_scan(root,now,snapshots,session,calendar):
       'paper_entries':0,'broker_submissions':0}
     publish_shadow_comparison(root,Path('/home/tradebot/Trade-Option-Bot/results/option_001_positions.json'))
     report['candidate_symbols']=[f['symbol'] for f in frames]
+    report['strategy_evaluation_audit']=strategy_audit
+    report['bwb_data_coverage']=bwb_coverage
     report['metadata_rejections']=invalid_metadata if chosen else 0
     report['refresh_required']=report['status']=='PENDING_CONNECTOR_REFRESH'
     atomic(root/'state/latest.json',report)
@@ -153,6 +217,7 @@ def main():
     p.add_argument('--option-snapshot',type=Path,default=Path('/home/tradebot/Trade-Option-Bot/results/robinhood_option_research.json'))
     p.add_argument('--session',type=Path,default=Path('/home/tradebot/Trade-PMCC-Bot/inputs/alpaca_pmcc_research.json'))
     p.add_argument('--calendar',type=Path,default=ROOT/'state/calendar.json')
+    p.add_argument('--bwb-snapshot',type=Path,default=ROOT/'state/bwb_research.json')
     args=p.parse_args()
     root=args.root.resolve();now=datetime.now(timezone.utc)
     (root/'state').mkdir(parents=True,exist_ok=True)
@@ -164,7 +229,9 @@ def main():
             calendar=refresh(now);atomic(args.calendar,calendar)
         s=load(args.session,{}).get('session') or {}
         if s.get('source')!='ALPACA_CALENDAR' or s.get('is_trading_day') is not True:s={}
-        outcome=execute_scan(root,now,[load(args.snapshot,{}),load(args.option_snapshot,{})],s,calendar)
+        bwb_data=load(args.bwb_snapshot,{})
+        outcome=execute_scan(root,now,[load(args.snapshot,{}),load(args.option_snapshot,{})],s,calendar,
+                             bwb_snapshots=[bwb_data] if bwb_data else None)
         print(json.dumps({k:outcome[k] for k in ('status','feed_status','paper_entries','candidate_symbols','refresh_required','generated_at_utc','broker_submissions')},sort_keys=True))
         # Exit 66 is the same explicit connector-refresh handoff used by OPTION-001.
         raise SystemExit(66 if outcome['refresh_required'] else 0)

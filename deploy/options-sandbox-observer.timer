@@ -3,10 +3,13 @@ Description=Strategy B independent paper purchase and management scans
 
 [Timer]
 # Sandbox starts after OPTION-001 final 10:30 ET / 09:30 CT scan.
-# Two independent entry checks after the later Robinhood refreshes;
-# an independent afternoon management check monitors any held paper spreads.
+# Paired attempts 30 seconds apart: each requires a genuinely NEW connector
+# quote batch for each leg; the local timer cannot manufacture fresh quotes.
+# Both books evaluate on every valid tick, without altering 60s TTL.
 OnCalendar=Mon..Fri *-*-* 10:10:00 America/Chicago
+OnCalendar=Mon..Fri *-*-* 10:10:30 America/Chicago
 OnCalendar=Mon..Fri *-*-* 10:25:00 America/Chicago
+OnCalendar=Mon..Fri *-*-* 10:25:30 America/Chicago
 OnCalendar=Mon..Fri *-*-* 14:25:00 America/Chicago
 OnCalendar=Mon..Fri *-*-* 14:30:00 America/Chicago
 AccuracySec=5s

@@ -67,6 +67,12 @@ def forward_cycle(root,frames,now,feed,*,source='ROBINHOOD_MCP_RESEARCH'):
           'open_count':len(opened),'completed_count':len(closed),
           'realized_pnl':str(sum((Decimal(x['pnl']) for x in closed),Decimal(0))),
           'win_rate_pct':model['metrics']['win_rate_pct'],
+          'realized_max_drawdown':model['metrics']['realized_max_drawdown'],
+          'observed_marked_max_drawdown':model['metrics']['observed_marked_max_drawdown'],
+          'closed_wins':model['metrics']['wins'],
+          'closed_losses':model['metrics']['losses'],
+          'unfilled_orders':model['unfilled_orders'],
+          'decision_counts':model['decision_counts'],
           'pending_settlement':model['metrics']['pending_settlement'],
           'decisions':model['decisions'][-8:],'trades':trades}
         all_positions.extend([{**p,'profile':name} for p in trades])
@@ -112,6 +118,21 @@ def forward_cycle(root,frames,now,feed,*,source='ROBINHOOD_MCP_RESEARCH'):
     if new:atomic(state/'forward_frames.json',{'schema_version':'1.0','frames':total})
     atomic(state/'paper_positions.json',{'generated_at_utc':iso(now),'paper_only':True,'positions':all_positions})
     atomic(state/'paper_ledger.json',report)
+    # Independent ledgers and scoreboards: neither strategy's P/L or daily
+    # entries are netted against the other's experimental book.
+    for name,model in profiles.items():
+        atomic(state/('paper_book_'+name+'.json'),{
+            'schema_version':'1.0','profile':name,'book_type':model['book_type'],
+            'generated_at_utc':iso(now),'feed_status':feed,
+            'starting_capital':model['starting_capital'],
+            'open_count':model['open_count'],'completed_count':model['completed_count'],
+            'realized_pnl':model['realized_pnl'], 'win_rate_pct':model['win_rate_pct'],
+            'wins':model['closed_wins'],'losses':model['closed_losses'],
+            'realized_max_drawdown':model['realized_max_drawdown'],
+            'observed_marked_max_drawdown':model['observed_marked_max_drawdown'],
+            'unfilled_orders':model['unfilled_orders'],
+            'decision_counts':model['decision_counts'],
+            'positions':model['trades'],'paper_only':True,'broker_submissions':0})
     if feed!='FRESH':
         atomic(state/'refresh_request.json',{'status':'PENDING_CONNECTOR_REFRESH',
             'requested_at_utc':iso(now),'reason':feed,

@@ -142,6 +142,33 @@ def spot_at(frame, now):
     return None
 
 
+def entry_gate_detail(frame, now, cutoff=ENTRY_CUTOFF):
+    """Explain every independent technical/data/event gate without changing eligibility."""
+    conditions={
+      'session_verified': market_open(frame,now),
+      'entry_window': ENTRY_START <= now.astimezone(CT).time() < cutoff,
+      'signal_recent': recent(frame.get('signal_at'),now),
+      'spot_recent': spot_at(frame,now) is not None,
+      'event_clear': frame.get('event_clear') is True,
+      'technical_clear': frame.get('technical_clear') is True,
+      'direction_up_or_neutral_range': frame.get('direction')=='UP' or
+                (frame.get('direction')=='NEUTRAL' and frame.get('range_clear') is True),
+    }
+    reasons=[]
+    for name,code in [('session_verified','SESSION_UNVERIFIED_OR_CLOSED'),
+                      ('entry_window','OUTSIDE_ENTRY_WINDOW'),
+                      ('signal_recent','SIGNAL_STALE_OR_UNAVAILABLE'),
+                      ('spot_recent','SPOT_STALE_OR_UNAVAILABLE'),
+                      ('event_clear','EVENT_NOT_CLEAR'),
+                      ('technical_clear','TECHNICAL_SETUP_UNCONFIRMED'),
+                      ('direction_up_or_neutral_range','DIRECTION_OR_RANGE_GATE')]:
+        if not conditions[name]:reasons.append(code)
+    if frame.get('symbol') not in ROOTS:reasons.insert(0,'UNSUPPORTED_SYMBOL')
+    return {'primary':entry_gate(frame,now,cutoff), 'reasons':reasons,
+            'checks':conditions,'signal_reason':frame.get('signal_reason'),
+            'direction':frame.get('direction')}
+
+
 def entry_gate(frame, now, cutoff=ENTRY_CUTOFF):
     if frame["symbol"] not in ROOTS:
         return "UNSUPPORTED_SYMBOL"
@@ -404,7 +431,8 @@ def replay(frames, settlements, horizon, band, cutoff):
                         continue
                 unfilled += 1
                 stats["ORDER_UNFILLED"] += 1
-            reason = gate
+            detail = entry_gate_detail(frame,now,cutoff)
+            reason = detail['reasons'][0] if gate and detail['reasons'] else gate
             if not reason:
                 if daily_entries[day] >= 2 or remaining <= 0:
                     reason = "ACCOUNT_LIMIT"
@@ -417,7 +445,8 @@ def replay(frames, settlements, horizon, band, cutoff):
                     else:
                         reason = "NO_ELIGIBLE_SPREAD"
             stats[reason] += 1
-            decisions.append({"at": iso(now), "symbol": symbol, "reason": reason})
+            decisions.append({"at": iso(now), "symbol": symbol, "reason": reason,
+                              "gate_diagnostics":detail})
         marks = [(p, price(p.spread, quotes_by_symbol.get(s, {}), closing=True)) for s, p in open_positions.items()]
         if any(mark is None for _, mark in marks):
             mark_gaps += 1

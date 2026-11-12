@@ -7,7 +7,7 @@ from pathlib import Path
 
 from event_calendar import clearance, refresh
 from replay import (CT, ENTRY_CUTOFF, ENTRY_START, OBSERVED_CUTOFF, PROFILES, RISK_CAP, economics,
-                    entry_gate, iso, market_open, money, number, quotes_at, recent, selection,
+                    entry_gate, entry_gate_detail, iso, market_open, money, number, quotes_at, recent, selection,
                     spot_at, timestamp)
 from robinhood_capture import PRODUCTS, RIGHTS, quote_frames
 
@@ -82,11 +82,10 @@ def decision(frame, quotes, now, cutoff):
         return {"status": "OUTSIDE_ENTRY_WINDOW"}
     if frame["calendar_status"] != "CLEAR":
         return {"status": frame["calendar_status"]}
-    reason = entry_gate(frame, now, cutoff)
+    detail = entry_gate_detail(frame, now, cutoff)
+    reason = detail['reasons'][0] if detail['primary'] and detail['reasons'] else detail['primary']
     if reason:
-        if reason == "EVENT_OR_TECHNICAL_GATE":
-            reason = "TECHNICAL_SETUP_UNCONFIRMED"
-        return {"status": reason}
+        return {"status": reason, "gate_diagnostics":detail}
     if not quotes:
         return {"status": "NO_FRESH_CONTRACT_QUOTES"}
     profiles = {}
