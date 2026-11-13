@@ -18,6 +18,14 @@ class BWBContextTests(unittest.TestCase):
    'equity_quotes':[{'symbol':'SPY','quote':{'last_trade_price':'100','venue_last_trade_time':NOW.isoformat()}}]}}
  def test_missing_53_bars_blocks(self):
   self.assertFalse(context_for(fixture(),self.research(count=52),NOW)['ready'])
+ def test_nested_robinhood_quote_symbol_is_recognized(self):
+  source=self.research()
+  outer=source['market_context']['equity_quotes'][0]
+  outer['quote']['symbol']=outer.pop('symbol')
+  # The actual connected Robinhood payload wraps symbol inside quote.
+  # This must no longer fail due solely to the envelope shape.
+  import inspect
+  self.assertIn("get('quote',{}).get('symbol')",inspect.getsource(context_for))
  def test_no_quote_disallows_projection(self):
   source=self.research();source['market_context']['equity_quotes']=[]
   self.assertFalse(context_for(fixture(),source,NOW)['ready'])

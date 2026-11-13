@@ -13,7 +13,7 @@ def context_for(frame,research,now):
     fail={'ready':False,'reason':'BWB_VERIFIED_53_BAR_CONTEXT_UNAVAILABLE'}
     charts=[x for x in (research.get('market_context') or {}).get('historicals',[]) if x.get('symbol')=='SPY' and x.get('interval')=='5minute' and x.get('bounds')=='regular']
     if len(charts)!=1:return fail
-    quotes=[x.get('quote',{}) for x in (research.get('market_context') or {}).get('equity_quotes',[]) if x.get('symbol')=='SPY']
+    quotes=[x.get('quote',{}) for x in (research.get('market_context') or {}).get('equity_quotes',[]) if x.get('symbol')=='SPY' or x.get('quote',{}).get('symbol')=='SPY']
     if len(quotes)!=1:return fail
     try:
         q=quotes[0];qt=timestamp(q['venue_last_trade_time']);spy_spot=number(q['last_trade_price']);index_spot=spot_at(frame,now)
