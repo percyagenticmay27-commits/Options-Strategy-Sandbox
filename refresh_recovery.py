@@ -12,7 +12,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from forward_paper import atomic,load
-from replay import CT,iso,ENTRY_CUTOFF,ENTRY_START,number
+from replay import CT,iso,ENTRY_CUTOFF,ENTRY_START,number,timestamp,recent
 from scan_paper import option_bot_idle,choose_snapshot
 from observe import frames_from_snapshot
 from replay import quotes_at,spot_at
@@ -30,6 +30,52 @@ def refresh_request(root,now,reason):
         'required_sequence':['FETCH_ACTUAL_ROBINHOOD_DATA','VERIFY_INSTRUMENT_METADATA',
              'ATOMIC_PUBLISH','VALIDATE_FRESHNESS','RUN_SANDBOX_PAPER_CYCLE'],
         'paper_only':True,'broker_submissions':0})
+
+def validate_new_provider_batch(path,root,now):
+    """The original provider acquisition time must follow any outstanding request."""
+    batch=load(path,{})
+    if not isinstance(batch,dict):return False,'RAW_CONNECTOR_BATCH_MISSING'
+    try:
+        if (batch.get('source')!='ROBINHOOD_MCP_RESEARCH' or
+            batch.get('research_only') is not True or
+            batch.get('order_submission_enabled') is not False or
+            not isinstance(batch.get('symbols'),dict) or
+            not {'SPX','XSP'}.issubset(batch['symbols'])):
+            return False,'RAW_CONNECTOR_BATCH_UNVERIFIED'
+        observed=timestamp(batch['generated_at_utc'])
+        if not recent(iso(observed),now):return False,'RAW_CONNECTOR_BATCH_STALE'
+        request=load(Path(root)/'state/refresh_request.json',{})
+        if request.get('status')=='PENDING_CONNECTOR_REFRESH':
+            if observed<=timestamp(request['requested_at_utc']):
+                return False,'RAW_CONNECTOR_BATCH_PRECEDES_REFRESH_REQUEST'
+        # A successfully published batch cannot be replayed for another
+        # paper cycle, even if its envelope remains inside 60 seconds.
+        consumed=load(Path(root)/'state/last_consumed_provider_batch.json',{})
+        if consumed.get('generated_at_utc') and observed<=timestamp(consumed['generated_at_utc']):
+            return False,'CONNECTOR_BATCH_ALREADY_CONSUMED'
+    except (KeyError,ValueError,TypeError,AttributeError):
+        return False,'RAW_CONNECTOR_BATCH_UNVERIFIED'
+    return True,'NEW_VERIFIED_PROVIDER_BATCH'
+
+def pending_second_quotes(root,now):
+    """Only a genuinely queued first quote warrants a second provider fetch."""
+    ledger=load(Path(root)/'state/paper_ledger.json',{})
+    queued=[]
+    for name,model in ledger.get('profiles',{}).items():
+        # Latest decision per symbol wins: a filled/cancelled order no longer
+        # triggers another speculative quote-refresh request.
+        latest={}
+        for row in model.get('decisions',[]):
+            if row.get('symbol'):latest[row['symbol']]=row
+        for row in latest.values():
+            if row.get('reason')=='ORDER_QUEUED' and recent(row.get('at'),now):
+                queued.append({'profile':name,'symbol':row['symbol'],'at':row['at']})
+    bwb=load(Path(root)/'state/bwb_paper_ledger.json',{})
+    for symbol,item in bwb.get('pending',{}).items():
+        if recent(item.get('at'),now):
+            queued.append({'profile':'BWB_0DTE','symbol':symbol,'at':item['at'],
+                           'leg_ids':item.get('leg_ids',[])})
+    return queued
 
 def recover_cycle(root,*,now,publish,validate,run):
     """Publish -> validate -> run. Never retry with the same stale batch."""
@@ -76,6 +122,10 @@ def recover_cycle(root,*,now,publish,validate,run):
     result.update(paper_entries=output.get('paper_entries',0),
                   new_paper_events=output.get('new_paper_events',0),
                   feed_status=output.get('feed_status'))
+    pending=pending_second_quotes(root,datetime.now(timezone.utc)) if mode_at(now)=='ENTRY_AND_MANAGEMENT' else []
+    result['second_quote_required']=bool(pending)
+    result['second_quote_candidates']=pending
+    result['next_action']='COLLECT_GENUINELY_NEW_OPTION_LEG_QUOTES_WITHIN_60_SECONDS' if pending else 'NO_SECOND_BATCH_REQUIRED'
     return finish('RESUMED','FRESH_DATA_RETRY_COMPLETED')
 
 def main():
@@ -87,6 +137,14 @@ def main():
     root=args.root.resolve()
     now=datetime.now(timezone.utc)
     snapshot=root/'state/robinhood_research.json'
+    fresh,reason=validate_new_provider_batch(args.input,root,now)
+    if not fresh:
+        refresh_request(root,now,reason)
+        result={'status':'REFRESH_RETRY_REQUIRED','reason':reason,'at_utc':iso(now),
+                'paper_only':True,'broker_submissions':0,'order_submission_enabled':False}
+        atomic(root/'state/refresh_recovery.json',result)
+        print(json.dumps(result,sort_keys=True))
+        return 66
     def publish():
         command=[sys.executable,str(root/'publish_snapshot.py'),
             '--input',str(args.input),'--session',str(args.session),'--output',str(snapshot)]
@@ -115,6 +173,12 @@ def main():
                     'broker_submissions':0}
         return payload
     result=recover_cycle(root,now=now,publish=publish,validate=validate,run=run)
+    if result['status']=='RESUMED':
+        original=load(args.input,{})
+        atomic(root/'state/last_consumed_provider_batch.json',{
+            'generated_at_utc':original['generated_at_utc'],
+            'consumed_at_utc':iso(datetime.now(timezone.utc)),
+            'paper_only':True,'broker_submissions':0})
     print(json.dumps(result,sort_keys=True))
     return 0 if result['status']=='RESUMED' else 66
 

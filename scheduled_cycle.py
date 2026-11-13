@@ -47,6 +47,7 @@ def coordinate(root:Path,now:datetime,*,run_recovery,run_scan):
     pending=(request.get('status')=='PENDING_CONNECTOR_REFRESH' or
              prior.get('status')=='PENDING_CONNECTOR_REFRESH')
     inbound=state/INBOX
+    consumed=load(state/'last_consumed_provider_batch.json',{})
     def report(status,reason,action):
         data={'status':status,'reason':reason,'action':action,
               'at_utc':iso(now),'paper_only':True,'broker_submissions':0,
@@ -69,15 +70,20 @@ def coordinate(root:Path,now:datetime,*,run_recovery,run_scan):
             return report('PENDING_CONNECTOR_REFRESH',result.get('reason','REFRESH_NOT_VERIFIED'),
                           'RETRY_NEW_CONNECTOR_DATA_NO_SCAN')
         return report('SCAN_COMPLETED','FRESH_DATA_RECOVERY_COMPLETED','RECOVERY_SCANNED_ONCE')
-    # No pending flag: a regular cycle may use only an independently verified
-    # fresh provider snapshot. The scanner itself performs full validation.
-    result=run_scan()
-    if result.get('status')=='PENDING_CONNECTOR_REFRESH':
-        return report('PENDING_CONNECTOR_REFRESH',result.get('feed_status','REFRESH_REQUIRED'),
+    # Collection-driven, not timer-driven. The timer is a watchdog, not a
+    # substitute for a new authenticated provider observation.
+    ready,why=input_fresh_since_request(inbound,{},now)
+    if not ready:
+        return report('WAITING_FOR_FRESH_CONNECTOR_BATCH',why,'NO_SCAN_UNTIL_NEW_PROVIDER_PUBLICATION')
+    batch=load(inbound,{})
+    if consumed.get('generated_at_utc') and timestamp(batch['generated_at_utc'])<=timestamp(consumed['generated_at_utc']):
+        return report('WAITING_FOR_FRESH_CONNECTOR_BATCH','CONNECTOR_BATCH_ALREADY_CONSUMED',
+                      'NO_DUPLICATE_SCAN')
+    result=run_recovery(inbound)
+    if result.get('status')!='RESUMED':
+        return report('PENDING_CONNECTOR_REFRESH',result.get('reason','RECOVERY_NOT_VERIFIED'),
                       'FETCH_FRESH_READ_ONLY_ROBINHOOD_DATA_BEFORE_NEXT_SCAN')
-    if result.get('status')!='PAPER_ACTIVE':
-        return report('DEFERRED',result.get('status','SCAN_NOT_COMPLETED'),'NO_TRADE')
-    return report('SCAN_COMPLETED','FRESH_DATA_EVALUATED','SCAN_COMPLETED')
+    return report('SCAN_COMPLETED','NEW_PROVIDER_BATCH_EVALUATED','RECOVERY_SCANNED_ONCE')
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
@@ -96,6 +102,6 @@ def main():
         return load(root/'state/latest.json',{})
     result=coordinate(root,datetime.now(timezone.utc),run_recovery=recovery,run_scan=scan)
     print(json.dumps(result,sort_keys=True))
-    return 0 if result['status'] in ('SCAN_COMPLETED','PENDING_CONNECTOR_REFRESH','DEFERRED') else 66
+    return 0 if result['status'] in ('SCAN_COMPLETED','PENDING_CONNECTOR_REFRESH','WAITING_FOR_FRESH_CONNECTOR_BATCH') else 66
 
 if __name__=='__main__':raise SystemExit(main())

@@ -43,10 +43,21 @@ class ScheduledCycleTests(unittest.TestCase):
   self.assertEqual(result['reason'],'STALE_RESEARCH_QUOTES')
   self.scan.assert_not_called()
  def test_regular_stale_cycle_becomes_pending(self):
-  self.scan.return_value={'status':'PENDING_CONNECTOR_REFRESH','feed_status':'SNAPSHOT_STALE_OR_FUTURE'}
   result=coordinate(self.root,NOW,run_recovery=self.recover,run_scan=self.scan)
-  self.assertEqual(result['status'],'PENDING_CONNECTOR_REFRESH')
-  self.recover.assert_not_called();self.scan.assert_called_once()
+  self.assertEqual(result['status'],'WAITING_FOR_FRESH_CONNECTOR_BATCH')
+  self.recover.assert_not_called();self.scan.assert_not_called()
+ def test_new_batch_without_pending_evaluates_immediately(self):
+  self.inbox(NOW-timedelta(seconds=10))
+  result=coordinate(self.root,NOW,run_recovery=self.recover,run_scan=self.scan)
+  self.assertEqual(result['status'],'SCAN_COMPLETED')
+  self.recover.assert_called_once();self.scan.assert_not_called()
+ def test_consumed_batch_is_not_evaluated_twice(self):
+  self.inbox(NOW-timedelta(seconds=10))
+  atomic(self.root/'state/last_consumed_provider_batch.json',
+    {'generated_at_utc':iso(NOW-timedelta(seconds=10))})
+  result=coordinate(self.root,NOW,run_recovery=self.recover,run_scan=self.scan)
+  self.assertEqual(result['reason'],'CONNECTOR_BATCH_ALREADY_CONSUMED')
+  self.scan.assert_not_called();self.recover.assert_not_called()
  def test_stale_prior_result_without_request_preserves_wait(self):
   atomic(self.root/'state/latest.json',{'status':'PENDING_CONNECTOR_REFRESH','feed_status':'SNAPSHOT_STALE_OR_FUTURE'})
   result=coordinate(self.root,NOW,run_recovery=self.recover,run_scan=self.scan)

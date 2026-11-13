@@ -2,16 +2,11 @@
 Description=Strategy B independent paper purchase and management scans
 
 [Timer]
-# Sandbox starts after OPTION-001 final 10:30 ET / 09:30 CT scan.
-# Paired attempts 30 seconds apart: each requires a genuinely NEW connector
-# quote batch for each leg; the local timer cannot manufacture fresh quotes.
-# Both books evaluate on every valid tick, without altering 60s TTL.
-OnCalendar=Mon..Fri *-*-* 10:10:00 America/Chicago
-OnCalendar=Mon..Fri *-*-* 10:10:30 America/Chicago
-OnCalendar=Mon..Fri *-*-* 10:25:00 America/Chicago
-OnCalendar=Mon..Fri *-*-* 10:25:30 America/Chicago
+# Watchdog only. Every successful collector publication invokes
+# refresh_recovery.py immediately; these ticks NEVER recycle old quotes.
+# Keep an early post-collector status check and afternoon management watchdog.
+OnCalendar=Mon..Fri *-*-* 10:35:00 America/Chicago
 OnCalendar=Mon..Fri *-*-* 11:25:00 America/Chicago
-OnCalendar=Mon..Fri *-*-* 12:25:00 America/Chicago
 OnCalendar=Mon..Fri *-*-* 14:25:00 America/Chicago
 OnCalendar=Mon..Fri *-*-* 14:30:00 America/Chicago
 AccuracySec=5s

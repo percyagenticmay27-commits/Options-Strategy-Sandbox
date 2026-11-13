@@ -263,3 +263,15 @@ cannot independently fetch it. No broker order submission is permitted.
 Use `python3 scheduled_cycle.py` to check the gate. Direct `scan_paper.py` is
 still available for explicitly validated connector recovery and tests, but
 must not be used as the routine timer command while refresh is pending.
+
+## Collection-driven refresh and quote-to-fill handoff (November 13, 2026)
+
+`scheduled_cycle.py` is now a watchdog and **never triggers a scan of an old provider snapshot**. The installed timer checks only at 10:35, 11:25, 14:25, and 14:30 CT. The authenticated read-only Robinhood collection automation is responsible for acquiring actual SPX/XSP chain/index and SPY bar data and atomically writing a uniquely new `state/incoming_robinhood_batch.json` with ORIGINAL provider timestamps. It must immediately call:
+
+```bash
+PYTHONPATH=/home/tradebot/Trade-Option-Bot/src python3 refresh_recovery.py --input state/incoming_robinhood_batch.json
+```
+
+`refresh_recovery.py` rejects a batch older than the pending request, older than 60 seconds, or already consumed, then publishes/validates and immediately runs **exactly one** paper cycle. After a successful cycle, `state/refresh_recovery.json` includes `second_quote_required` and `second_quote_candidates` when a short-lived pending first-quote order is queued. The collector must obtain **another independently new batch within 60 seconds** for those contracts only, then invoke the same recovery entry point again. A successful first observation does not by itself authorize a paper fill. If missing quotes, leave the refresh request outstanding and log the precise blocker; never manufacture a provider timestamp. Management-only refreshes may continue outside entry hours, but cannot open new positions.
+
+The DigitalOcean service is not an authenticated Robinhood quote provider. The external connected collector must execute the publication + immediate recovery handoff. A timer tick alone cannot generate fresh quotes.
