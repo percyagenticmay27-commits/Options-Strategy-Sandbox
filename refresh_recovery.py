@@ -137,6 +137,11 @@ def main():
     root=args.root.resolve()
     now=datetime.now(timezone.utc)
     snapshot=root/'state/robinhood_research.json'
+    # Audit the independently supplied provider surface before publishing it.
+    # Low coverage is an explicit report, not grounds for loosening strategy risk.
+    from contract_coverage import audit as audit_contract_coverage
+    atomic(root/'state/contract_coverage_latest.json',
+           audit_contract_coverage(load(args.input,{}),now))
     fresh,reason=validate_new_provider_batch(args.input,root,now)
     if not fresh:
         refresh_request(root,now,reason)
@@ -174,6 +179,10 @@ def main():
         return payload
     result=recover_cycle(root,now=now,publish=publish,validate=validate,run=run)
     if result['status']=='RESUMED':
+        # Source-verified metadata is appended by publish_snapshot.py; audit
+        # that enriched and validated surface, not incomplete raw envelopes.
+        atomic(root/'state/contract_coverage_latest.json',
+               audit_contract_coverage(load(snapshot,{}),datetime.now(timezone.utc)))
         original=load(args.input,{})
         atomic(root/'state/last_consumed_provider_batch.json',{
             'generated_at_utc':original['generated_at_utc'],
