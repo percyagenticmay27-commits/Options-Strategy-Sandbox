@@ -109,9 +109,13 @@ class ReplayTests(unittest.TestCase):
     def test_risk_combined_across_symbols_and_two_delta_profiles(self):
         d=dataset(frame(0),frame(0,symbol="SPX"),frame(30),frame(30,symbol="SPX"))
         r=compare(d)["profiles"]
-        self.assertEqual(len(r["low_delta"]["trades"]),1)
-        self.assertEqual(len(r["comparison"]["trades"]),1)
-        self.assertLessEqual(float(r["low_delta"]["trades"][0]["risk"]),100)
+        # The larger $400 limit permits two positions per independent book.
+        # Their COMBINED open defined-risk must still stay <= $400 per book.
+        self.assertEqual(len(r["low_delta"]["trades"]),2)
+        self.assertEqual(len(r["comparison"]["trades"]),2)
+        for name in ("low_delta","comparison"):
+            self.assertLessEqual(sum(float(t["risk"]) for t in r[name]["trades"]),400)
+            self.assertTrue(all(float(t["risk"])<=400 for t in r[name]["trades"]))
         self.assertNotEqual(r["low_delta"]["trades"][0]["legs"],r["comparison"]["trades"][0]["legs"])
 
     def test_expiry_pending_is_neither_win_nor_loss(self):

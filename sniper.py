@@ -17,7 +17,7 @@ D=Decimal
 class ScanPolicy:
     min_dte:int=14
     max_dte:int=30
-    max_risk:Decimal=D('100')
+    max_risk:Decimal=D('400')
     capital:Decimal=D('500')
     max_snapshot_seconds:int=60
     symbols:tuple[str,...]=('SPY','QQQ')

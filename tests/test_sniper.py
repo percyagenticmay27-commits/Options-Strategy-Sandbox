@@ -24,7 +24,18 @@ class SniperTests(unittest.TestCase):
  def test_matching_breakout_returns_candidate_with_risk(self):
   r=evaluate(evidence(),NOW)
   self.assertEqual(r['status'],'CANDIDATE');self.assertEqual(r['strategy'],'SNIPER')
-  self.assertEqual(r['structure'],'CALL_DEBIT_SPREAD');self.assertLessEqual(D(r['maximum_loss_usd']),D('100'))
+  self.assertEqual(r['structure'],'CALL_DEBIT_SPREAD');self.assertLessEqual(D(r['maximum_loss_usd']),D('400'))
+ def test_call_debit_purchase_at_400_max_loss_ceiling(self):
+  e=evidence(strike='610')
+  # Quote debit $3.80/share plus $2.60 fees -> $382.60 defined loss.
+  e['contracts'][1]['quote']['ask_price']='7.70'
+  r=evaluate(e,NOW)
+  self.assertEqual(r['status'],'CANDIDATE')
+  self.assertEqual(D(r['maximum_loss_usd']),D('382.60'))
+  # A $4.10 natural debit would exceed the $400 fee-inclusive cap.
+  e['contracts'][1]['quote']['ask_price']='8.00'
+  self.assertEqual(evaluate(e,NOW)['reason'],'NO_VERIFIED_14_TO_30_DTE_SPREAD')
+
  def test_bearish_breakout_put_debit_spread(self):
   e=evidence(spot='590',close='590',vwap='595',ema20='598',prev_high='600')
   e['technical']['prior_completed_low']='591'
@@ -55,7 +66,7 @@ class SniperTests(unittest.TestCase):
  def test_not_automatic_fill_without_second_quote_batch(self):
   r=evaluate(evidence(),NOW);self.assertFalse(r['paper_entry']);self.assertEqual(r['execution_status'],'PENDING_NEWER_QUOTES')
  def test_one_symbol_does_not_cause_cross_book_risk(self):
-  self.assertEqual(ScanPolicy().max_risk,D('100'))
+  self.assertEqual(ScanPolicy().max_risk,D('400'))
 
 class SniperCycleTests(unittest.TestCase):
  def test_two_separate_actual_quote_batches_needed_for_paper_buy(self):

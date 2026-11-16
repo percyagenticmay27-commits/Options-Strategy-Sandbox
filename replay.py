@@ -12,7 +12,7 @@ CT = ZoneInfo("America/Chicago")
 D = Decimal
 ZERO = D("0")
 CAPITAL = D("500")
-RISK_CAP = D("100")
+RISK_CAP = D("400")
 MAX_AGE = timedelta(seconds=60)
 ENTRY_START = time(10, 0)
 ENTRY_CUTOFF = time(11)

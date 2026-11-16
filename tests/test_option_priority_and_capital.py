@@ -16,7 +16,7 @@ class SandboxCapitalAndPriorityTests(unittest.TestCase):
     def test_each_profile_reports_500_paper_capital(self):
         result=replay.compare(dataset(frame(0),frame(30)))
         self.assertEqual(result['capital'],'500.00')
-        self.assertEqual(result['combined_risk_limit'],'100.00')
+        self.assertEqual(result['combined_risk_limit'],'400.00')
         self.assertEqual(set(result['profiles']),{'low_delta','comparison'})
 
     def test_persisted_forward_ledger_reports_allocation_separately_from_shadow(self):
@@ -27,7 +27,7 @@ class SandboxCapitalAndPriorityTests(unittest.TestCase):
             self.assertEqual(result['comparison_hypothetical_capital'],'500.00')
             self.assertEqual(result['profiles']['low_delta']['starting_capital'],'500.00')
             self.assertEqual(result['profiles']['comparison']['starting_capital'],'500.00')
-            self.assertEqual(result['max_defined_risk_per_book'],'100.00')
+            self.assertEqual(result['max_defined_risk_per_book'],'400.00')
 
     def test_entry_before_10am_central_is_blocked(self):
         early=frame(0,minute='15:40') # 9:40 Central
