@@ -5,12 +5,13 @@ from sniper import evaluate,ScanPolicy
 
 NOW=datetime(2026,11,11,16,20,tzinfo=timezone.utc)
 
-def evidence(*,symbol='SPY',spot='600',prev_high='598',close='601',vwap='599',ema20='596',strike='605',expiry='2026-12-04',fresh=True,earnings='CLEAR'):
+def evidence(*,symbol='SPY',spot='600',prev_high='598',close='601',vwap='599',ema20='596',strike='605',expiry='2026-11-11',fresh=True,earnings='CLEAR'):
  at=(NOW-timedelta(seconds=8 if fresh else 100)).isoformat()
  q=lambda x,i,delta:dict(instrument_id=i,bid_price=x[0],ask_price=x[1],bid_size=10,ask_size=12,updated_at=at,delta=delta,implied_volatility='0.23',open_interest=300,volume=150)
  return {'source':'ROBINHOOD_MCP_RESEARCH','paper_only':True,'research_only':True,'order_submission_enabled':False,
  'broker_execution_enabled':False,'generated_at_utc':at,'symbol':symbol,'underlying':{'last_price':spot,'updated_at':at},
  'technical':{'bar_close':close,'bar_close_at':NOW.isoformat(),'prior_completed_high':prev_high,'prior_completed_low':'597','vwap':vwap,'ema20':ema20,'ema20_prior':'595', 'bars_completed':22,'source':'SPY_5MINUTE_RTH'},
+ 'session':{'source':'ALPACA_CALENDAR','is_trading_day':True,'date':'2026-11-11','open':'2026-11-11T14:30:00Z','close':'2026-11-11T21:00:00Z'},
  'events':{'earnings_clearance':earnings,'dividend_clearance':'CLEAR',
      'verified_at_utc':at,'clear_through_date':'2026-12-18','provenance':'VERIFIED_ISSUER_CORPORATE_ACTION_CALENDAR'},
  'contracts':[dict(instrument_id='short',symbol=symbol,expiration_date=expiry,right='CALL',strike_price=strike,
@@ -34,7 +35,7 @@ class SniperTests(unittest.TestCase):
   self.assertEqual(D(r['maximum_loss_usd']),D('382.60'))
   # A $4.10 natural debit would exceed the $400 fee-inclusive cap.
   e['contracts'][1]['quote']['ask_price']='8.00'
-  self.assertEqual(evaluate(e,NOW)['reason'],'NO_VERIFIED_14_TO_30_DTE_SPREAD')
+  self.assertEqual(evaluate(e,NOW)['reason'],'NO_VERIFIED_0_TO_1_DTE_SPREAD')
 
  def test_bearish_breakout_put_debit_spread(self):
   e=evidence(spot='590',close='590',vwap='595',ema20='598',prev_high='600')
@@ -58,11 +59,11 @@ class SniperTests(unittest.TestCase):
   e=evidence();e['events']['verified_at_utc']=(NOW-timedelta(days=1)).isoformat()
   self.assertEqual(evaluate(e,NOW)['reason'],'CORPORATE_EVENT_CLEARANCE_STALE')
  def test_event_clearance_must_cover_expiration(self):
-  e=evidence();e['events']['clear_through_date']='2026-11-20'
-  self.assertEqual(evaluate(e,NOW)['reason'],'NO_VERIFIED_14_TO_30_DTE_SPREAD')
+  e=evidence();e['events']['clear_through_date']='2026-11-10'
+  self.assertEqual(evaluate(e,NOW)['reason'],'NO_VERIFIED_0_TO_1_DTE_SPREAD')
 
  def test_bad_dte_blocks(self):
-  r=evaluate(evidence(expiry='2026-11-13'),NOW);self.assertEqual(r['reason'],'NO_VERIFIED_14_TO_30_DTE_SPREAD')
+  r=evaluate(evidence(expiry='2026-11-13'),NOW);self.assertEqual(r['reason'],'NO_VERIFIED_0_TO_1_DTE_SPREAD')
  def test_not_automatic_fill_without_second_quote_batch(self):
   r=evaluate(evidence(),NOW);self.assertFalse(r['paper_entry']);self.assertEqual(r['execution_status'],'PENDING_NEWER_QUOTES')
  def test_one_symbol_does_not_cause_cross_book_risk(self):

@@ -39,6 +39,6 @@ class ScanPaperIntegrationTests(unittest.TestCase):
   from datetime import timezone
   s={'date':'2026-11-09','open':'2026-11-09T14:30:00Z','close':'2026-11-09T21:00:00Z','verified':True,'source':'ALPACA_CALENDAR','is_trading_day':True}
   result=execute_scan(self.root,NOW,[],s,{'verified_at':NOW.isoformat()})
-  self.assertEqual(result['sniper']['pilot'],'SNIPER_BWB_0DTE')
-  self.assertEqual(result['sniper']['evaluations'][0]['status'],'DATA_UNAVAILABLE')
+  self.assertEqual(result['sniper']['profile'],'EQUITY_0_1_DTE_INTRADAY')
+  self.assertEqual(result['bwb_0dte']['evaluations'][0]['status'],'DATA_UNAVAILABLE')
   self.assertTrue((self.root/'state/bwb_daily_evaluation.json').exists())

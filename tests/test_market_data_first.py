@@ -48,7 +48,7 @@ class CompletedBarTests(unittest.TestCase):
     def test_stale_option_quotes_still_cannot_be_candidates(self):
         t=SNIPER_NOW+timedelta(minutes=2)
         p=evidence();p['generated_at_utc']=t.isoformat();p['underlying']['updated_at']=t.isoformat()
-        self.assertEqual(evaluate(p,t)['reason'],'NO_VERIFIED_14_TO_30_DTE_SPREAD')
+        self.assertEqual(evaluate(p,t)['reason'],'NO_VERIFIED_0_TO_1_DTE_SPREAD')
 
 class MarketDataFirstTests(unittest.TestCase):
     def test_two_session_warmup_makes_bwb_context_ready_before_11am(self):

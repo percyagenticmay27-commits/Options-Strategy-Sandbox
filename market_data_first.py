@@ -81,10 +81,10 @@ def plan(raw,session,now):
             t=technical(charts.get(symbol,{}),quotes.get(symbol,{}),now)
             direction=t['signal'];rights=['call'] if direction=='BULLISH' else ['put'] if direction=='BEARISH' else []
             report['strategies'][key]={'status':'COLLECT_OPTIONS' if rights else 'WAIT',
-                'direction':direction,'rights':rights,'dte':[14,30],
+                'direction':direction,'rights':rights,'dte':[0,1],'preferred_dte':0,'holding_policy':'SAME_SESSION_EXIT','mandatory_exit_ct':'14:20',
                 'spot':quotes[symbol]['last_trade_price'],'technical':t,
                 'strike_policy':'RESOLVE_EXISTING_CHAIN_STRIKES_AROUND_CURRENT_SPOT_WITH_PROTECTIVE_VERTICAL;EVALUATE_NATURAL_DEBIT_AND_400_FEE_INCLUSIVE_RISK'}
-            report['sniper_inputs'][symbol]={'symbol':symbol,'technical':t,
+            report['sniper_inputs'][symbol]={'symbol':symbol,'technical':t,'session':session,
                 'underlying':{'last_price':quotes[symbol]['last_trade_price'],'updated_at':quotes[symbol]['venue_last_trade_time']}}
         except (ValueError,TypeError,KeyError,ArithmeticError) as exc:
             report['strategies'][key]={'status':'FETCH_MARKET_DATA_REQUIRED','reason':str(exc),'rights':[]}

@@ -1,7 +1,7 @@
 """Independent Sniper equity debit-spread paper research; no broker order authority.
 
-A daily evaluator, not an execution simulator. Does NOT inherit SPX/XSP 0DTE
-entry rules. A qualified candidate is never a purchase without separately
+Prefer 0DTE; permit no more than 1DTE; exit every position the same session.
+The breakout signal remains independent of the SPX/XSP credit-profile rules. A qualified candidate is never a purchase without separately
 verified later quotes, settlement/assignment handling, and a paper lifecycle.
 """
 from __future__ import annotations
@@ -16,12 +16,17 @@ D=Decimal
 
 @dataclass(frozen=True)
 class ScanPolicy:
-    min_dte:int=14
-    max_dte:int=30
+    min_dte:int=0
+    max_dte:int=1
     max_risk:Decimal=D('400')
     capital:Decimal=D('500')
     max_snapshot_seconds:int=60
     symbols:tuple[str,...]=('SPY','QQQ')
+
+    def __post_init__(self):
+        if not 0<=self.min_dte<=self.max_dte<=1:
+            raise ValueError('SNIPER_MAXIMUM_ONE_DTE')
+
 
 
 def _num(v):
@@ -39,7 +44,7 @@ def evaluate(payload:Mapping, now:datetime, policy=ScanPolicy()):
     Evaluation never mutates an account. Absence of fresh independent quote
     observations is explicitly a pending fill, not a profitable paper purchase.
     """
-    out={'strategy':'SNIPER','profile':'EQUITY_14_30_DTE','as_of_utc':iso(now),
+    out={'strategy':'SNIPER','profile':'EQUITY_0_1_DTE_INTRADAY','as_of_utc':iso(now),
          'status':'DATA_UNAVAILABLE','reason':'SNIPER_EQUITY_RESEARCH_NOT_PUBLISHED',
          'paper_entry':False,'broker_submissions':0,'paper_only':True,
          'execution_status':'NO_EXECUTABLE_PAPER_FILL'}
@@ -121,15 +126,15 @@ def evaluate(payload:Mapping, now:datetime, policy=ScanPolicy()):
             max_profit=(width-debit)*100-fees
             if max_profit<=max_loss:continue
             proposal={'symbol':symbol,'strategy':'SNIPER','structure':structure,
-                'expiration':str(exp),'long_contract_id':long['instrument_id'],
+                'expiration':str(exp),'dte':(exp-now.astimezone(CT).date()).days,'holding_policy':'SAME_SESSION_EXIT','long_contract_id':long['instrument_id'],
                 'short_contract_id':short['instrument_id'],
                 'long_strike':str(strike_long),'short_strike':str(strike_short),
                 'max_loss_usd':str(max_loss),'maximum_loss_usd':str(max_loss),
                 'maximum_profit_usd':str(max_profit),'net_debit':str(debit),
                 'paper_entry':False,'execution_status':'PENDING_NEWER_QUOTES'}
-            key=(-max_profit/max_loss,max_loss,abs(strike_long-spot),long['instrument_id'],short['instrument_id'])
+            key=((exp-now.astimezone(CT).date()).days,-max_profit/max_loss,max_loss,abs(strike_long-spot),long['instrument_id'],short['instrument_id'])
             if best is None or key<best[0]:best=(key,proposal)
     if best is None:
-        out.update(status='REJECTED',reason='NO_VERIFIED_14_TO_30_DTE_SPREAD');return out
+        out.update(status='REJECTED',reason='NO_VERIFIED_0_TO_1_DTE_SPREAD');return out
     out.update(best[1]);out.update(status='CANDIDATE',reason='PENDING_FRESH_SECOND_QUOTE_AND_PAPER_EXECUTION')
     return out

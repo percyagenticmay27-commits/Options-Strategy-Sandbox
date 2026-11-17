@@ -1,4 +1,4 @@
-"""Independent Sniper 14-30 DTE equity call-debit paper ledger and daily evaluation.
+"""Independent Sniper 0/1-DTE intraday debit-spread paper ledger.
 
 No order transport. The scanner requires two distinct provider quote batches for
 an executable paper entry; physical-settlement contracts must close before expiry.
@@ -10,6 +10,7 @@ from pathlib import Path
 from replay import CT,iso,timestamp
 from forward_paper import atomic,load
 from sniper import evaluate,ScanPolicy
+from sniper_intraday import deadline,forced_exit_reason
 
 MAX_AGE_SECONDS=60
 ENTRY_START=time(10,0)
@@ -35,7 +36,7 @@ def _quote(payload,contract,now):
    except (ValueError,TypeError,KeyError,ArithmeticError):pass
  return None
 
-def run(root,payload,now):
+def run(root,payload,now,*,close_all=False):
  root=Path(root);state=root/'state';state.mkdir(parents=True,exist_ok=True)
  ledger=load(state/'sniper_paper_ledger.json',{'schema_version':'1.0','strategy':'SNIPER',
   'paper_only':True,'broker_submissions':0,'open':[],'completed':[],'events':[],
@@ -53,9 +54,14 @@ def run(root,payload,now):
  ledger['order_submission_enabled']=False
  ledger['capital_usd']='500.00'
  ledger['max_open_defined_risk_usd']=format(ScanPolicy().max_risk,'.2f')
+ ledger['expiration_policy']={'preferred_dte':0,'maximum_dte':1,'holding_policy':'SAME_SESSION_EXIT','mandatory_exit_ct':'14:20'}
  # An open spread can only be marked/closed from fresh natural bid/ask.
  if ledger['open']:
   for pos in list(ledger['open']):
+   forced=forced_exit_reason(pos,now) or ('INTRADAY_MANAGEMENT_CLOSE' if close_all else None)
+   if forced=='DTE_POLICY_MIGRATION_EXIT':
+    pos.update(excluded_from_strategy_statistics=True,exclusion_reason='LEGACY_14_30_DTE_TEST_OUTSIDE_USER_SCOPE')
+   if forced:pos.update(exit_pending=True,requested_exit_reason=forced)
    if payload.get('symbol')!=pos['symbol'] or not _fresh(payload.get('generated_at_utc'),now):
     pos['last_management_status']='FRESH_HELD_QUOTES_REQUIRED';continue
    long=_quote(payload,pos['long_contract_id'],now)
@@ -72,12 +78,10 @@ def run(root,payload,now):
    stop=D(pos['maximum_loss_usd'])*D('.5')
    # Physical settlement / assignment cannot be simulated as cash. Close
    # before expiry with verified live quotes, fail closed otherwise.
-   days=(datetime.fromisoformat(pos['expiration']).date()-now.astimezone(CT).date()).days
-   reason=('ONE_DAY_BEFORE_EXPIRATION' if days<=1 else
-           'TAKE_PROFIT' if pnl>=profit_target else
+   reason=forced or ('TAKE_PROFIT' if pnl>=profit_target else
            'HALF_MAX_LOSS' if pnl<=-stop else None)
-   if reason and closing_credit>=0:
-    pos.update(status='CLOSED',closed_at=iso(now),exit_reason=reason,
+   if reason:
+    pos.update(status='CLOSED',closed_at=iso(now),exit_reason=reason,exit_pending=False,
                closing_credit=str(closing_credit),realized_pnl_usd=str(pnl.quantize(D('.01'))))
     ledger['open'].remove(pos);ledger['completed'].append(pos)
     e={'action':'PAPER_SELL','at':iso(now),'symbol':pos['symbol'],
@@ -85,13 +89,20 @@ def run(root,payload,now):
        'reason':reason,'paper_only':True,'broker_submissions':0}
     ledger['events'].append(e);ledger['new_events'].append(e)
  local=now.astimezone(CT)
- allowed=local.weekday()<5 and ENTRY_START<=local.time()<ENTRY_END
+ try:
+  exit_at=deadline(now,payload.get('session') or {})
+  session_entry_ok=now<exit_at
+ except (ValueError,TypeError,KeyError):
+  exit_at=None;session_entry_ok=False
+ allowed=local.weekday()<5 and ENTRY_START<=local.time()<ENTRY_END and session_entry_ok and not close_all
+ if report['status']=='CANDIDATE' and not session_entry_ok:
+  report.update(status='REJECTED',reason='VERIFIED_SESSION_OR_INTRADAY_ENTRY_DEADLINE_REQUIRED')
  # Exactly one candidate fills only after newer verified quotes on same IDs,
  # with re-confirmed strategy signal, no daily repeat and the configured fee-inclusive risk limit.
  if allowed and report['status']=='CANDIDATE' and not ledger['open']:
   key=report['symbol']
   pending=ledger['pending_candidates'].get(key)
-  accepted=any(p['opened_at'].startswith(day) for p in ledger['completed'])
+  accepted=any(p['opened_at'].startswith(day) and not p.get('excluded_from_strategy_statistics') for p in ledger['completed'])
   account_risk=sum(D(p['maximum_loss_usd']) for p in ledger['open'])
   if not accepted and pending:
    try:
@@ -111,7 +122,9 @@ def run(root,payload,now):
          'opened_at':iso(now),'opening_debit':str(debit),
          'maximum_loss_usd':str(risk.quantize(D('.01'))),
          'maximum_profit_usd':str(((abs(D(report['short_strike'])-D(report['long_strike']))-debit)*100-D('2.60')).quantize(D('.01'))),
-         'expiration':report['expiration'],'long_contract_id':report['long_contract_id'],
+         'expiration':report['expiration'],'dte':report['dte'],'holding_policy':'SAME_SESSION_EXIT',
+         'mandatory_exit_at':iso(exit_at.astimezone(timezone.utc)),'long_strike':report['long_strike'],'short_strike':report['short_strike'],
+         'long_contract_id':report['long_contract_id'],
          'short_contract_id':report['short_contract_id'],'paper_only':True,
          'order_submission_enabled':False,'structure':report['structure']}
        ledger['open'].append(entry)
@@ -131,6 +144,14 @@ def run(root,payload,now):
  else:
   # Expired or unavailable setups cannot authorize delayed fills.
   ledger['pending_candidates']={}
+ valid_closed=[p for p in ledger['completed'] if not p.get('excluded_from_strategy_statistics') and p.get('realized_pnl_usd') is not None]
+ gains=[D(p['realized_pnl_usd']) for p in valid_closed]
+ ledger['performance']={'closed_verified':len(gains),'wins':sum(p>0 for p in gains),'losses':sum(p<0 for p in gains),
+  'win_rate_pct':str(D(sum(p>0 for p in gains))*100/len(gains)) if gains else None,
+  'realized_pnl_usd':str(sum(gains,D(0))),
+  'excluded_legacy_positions':sum(bool(p.get('excluded_from_strategy_statistics')) for p in ledger['completed']+ledger['open']),
+  'all_paper_realized_pnl_usd':str(sum((D(p['realized_pnl_usd']) for p in ledger['completed'] if p.get('realized_pnl_usd') is not None),D(0))),
+  'statistics_scope':'QUALIFYING_0_1_DTE_INTRADAY_ONLY;ALL_PAPER_PNL_INCLUDES_LEGACY_TEST'}
  atomic(state/'sniper_paper_ledger.json',ledger)
  atomic(state/'sniper_daily_evaluation.json',{'at':iso(now),'date':day,'strategy':'SNIPER',
   'evaluation':report,'new_paper_events':ledger['new_events'],

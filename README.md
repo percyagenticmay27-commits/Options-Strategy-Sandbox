@@ -188,55 +188,13 @@ management-only recovery returned `RESUMED`, verified current actual SPX/XSP
 quotes plus SPY bars, and added new forward observations. No positions existed,
 so the verified test did NOT exercise an actual held-leg exit or entry fill.
 
-## Sniper 14–30 DTE equity options — independent experiment (November 11, 2026)
+## Sniper 0/1-DTE intraday options — November 17, 2026
 
-`sniper.py` and `sniper_cycle.py` are the independent **Sniper** evaluator and
-paper ledger. This strategy is NOT a variation of SPX/XSP 0DTE Low Delta.
-It evaluates SPY/QQQ **14–30 DTE** exchange-traded equity options with either:
+Prefer 0DTE; use 1DTE only when no valid same-day candidate qualifies. Never select >1DTE. SPY/QQQ breakout/breakdown signals choose a defined-risk call/put debit vertical. The existing $500 hypothetical allocation, $400 fee-inclusive maximum loss, verified event checks and two genuinely newer quote batches remain mandatory.
 
-- Bullish completed five-minute candle breakout above the preceding completed
-  high, a rising EMA20, and SPY/QQQ above its verified same-session VWAP;
-  analyze an **OTM or ATM long-call / farther OTM short-call debit spread**.
-- Bearish completed five-minute candle breakdown below the preceding completed
-  low, a falling EMA20, and underlying below VWAP;
-  analyze a **long put / farther OTM short-put debit spread**.
+Every position exits the entry session: profit/stop first, otherwise mandatory close at 14:20 CT, or ten minutes before an earlier verified exchange close. A 1DTE expiration does not authorize an overnight hold. Missing exit quotes leave an explicit pending exit; no invented fills or settlement. The earlier December-expiring test is retained for audit, closed from fresh quotes, and excluded from strategy win-rate/P&L statistics.
 
-The independent experimental account is $500 simulated, with a hard $100
-simultaneous defined risk cap including modeled opening/closing commissions.
-Candidates require a natural (buy ask / sell bid) positive debit and at least
-1:1 modeled max-profit / max-loss. Contract metadata must verify *American
-exercise and physical settlement*, current executable sizes, open interest,
-volume, IV, true provider timestamps, and a verified 14–30 DTE expiration.
-Upcoming issuer dividends and earnings/event clearance must be explicit
-`CLEAR`; unknown is a blocker. Physically settled options may not be treated
-as SPX cash settlement. Position management targets 50% of maximum profit,
-50% of maximum defined loss, or a close by the day before expiration, using
-fresh quotes; insufficient quotes remain flagged, not fabricated as fills.
-
-Run daily after OPTION-001 (the existing sandbox timer already runs at 10:10
-and 10:25 Central). `scan_paper.py` always calls `sniper_cycle.run` and writes
-`state/sniper_daily_evaluation.json` and `state/sniper_paper_ledger.json`.
-The connected Robinhood refresh task now requests verified equity market data
-separately in `state/sniper_equity_research.json`; its exact input schema is
-exercised in `tests/test_sniper.py`. If no provider-published equity data is
-available the evaluator records `DATA_UNAVAILABLE` instead of silently
-skipping or reusing SPX quotes. A qualifying candidate becomes an actual local
-**paper BUY** only upon a second independently newer, valid quote set within
-60 seconds; the first quote batch alone creates a pending candidate, never a
-fill. This experiment sends **ZERO** live broker orders. Sniper has its OWN
-paper-ledger/account and does not change Low Delta parameters or reports.
-
-Sniper's initial implementation is a simple **breakout debit-spread research
-hypothesis**, chosen for comparison; the previously registered Sniper catalog
-contained no concrete indicator, strike, or risk formula. Do not call it a
-validated or profitable strategy until real-provider forward trades exist.
-
-Corporate action proof additionally requires a timestamped `events.verified_at_utc`
-(<=1 hour old), a truthful `events.provenance`, and
-`events.clear_through_date` covering the contract expiration. If missing, the
-Sniper paper trade is rejected. ETF earnings exemption does not waive an
-issuer-distribution/ex-dividend date check. A future management quote failure
-must never be counted as a successful simulated sale.
+See `docs/DATA_FIRST_PIPELINE.md`. The Sniper ledger is `state/sniper_paper_ledger.json`; BWB remains a separate experiment. No persistent entry-time override is enabled.
 
 ## Refresh-first scheduled-cycle gate (November 12, 2026)
 

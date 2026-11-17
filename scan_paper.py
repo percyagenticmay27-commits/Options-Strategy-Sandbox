@@ -198,9 +198,17 @@ def execute_scan(root,now,snapshots,session,calendar,bwb_snapshots=None):
        'open_positions':len(bwb['open']),'completed_positions':len(bwb['completed']),
        'new_paper_events':len(bwb['new_events']),'paper_only':True,'broker_submissions':0}
 
-    # The previous 14-30 DTE equity Sniper pilot is PAUSED. The user's
-    # new sniper experiment is the independent SPX/XSP 0DTE BWB above.
-    report['sniper']={**report['bwb_0dte'],'pilot':'SNIPER_BWB_0DTE'}
+    # Sniper and BWB have separate strategies, positions and source reports.
+    sniper_state=load(root/'state/sniper_paper_ledger.json',{})
+    sniper_report=load(root/'state/sniper_daily_evaluation.json',{})
+    report['sniper']={'strategy':'SNIPER','profile':'EQUITY_0_1_DTE_INTRADAY',
+        'preferred_dte':0,'maximum_dte':1,'holding_policy':'SAME_SESSION_EXIT',
+        'mandatory_exit_ct':'14:20','last_evaluated_at':sniper_report.get('at'),
+        'source_report':'state/sniper_daily_evaluation.json',
+        'evaluation':sniper_report.get('evaluation'),
+        'open_positions':len(sniper_state.get('open',[])),
+        'performance':sniper_state.get('performance',{}),
+        'paper_only':True,'broker_submissions':0}
     shadow=observe_regime_shadow(root,frames,now)
     report['regime_shadow']={'status':'OBSERVING','strategies':4,
       'evaluations':shadow['latest_evaluations'],'stats':shadow['stats'],
