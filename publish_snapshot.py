@@ -28,7 +28,7 @@ def prepare(raw, session, now, enrich_contract):
         "source": "ROBINHOOD_MCP_RESEARCH",
         "research_only": True, "paper_only": True,
         "order_submission_enabled": False, "broker_execution_enabled": False,
-        "live_trading_enabled": False, "generated_at_utc": iso(now),
+        "live_trading_enabled": False, "generated_at_utc": raw["generated_at_utc"],
         "symbols": symbols, "market_context": raw["market_context"],
     }
     frames, status = frames_from_snapshot(snapshot, session, now)
@@ -52,6 +52,10 @@ def main():
     now = datetime.now(timezone.utc)
     snapshot = prepare(read_json(args.input), read_json(args.session).get("session", {}), now, enrich_contract)
     write_json(args.output, snapshot)
+    # Publish the same verified fresh context for BWB; do not strand it behind
+    # an older dedicated snapshot that omits warmup bars/reference quotes.
+    if args.output.name=='robinhood_research.json':
+        write_json(args.output.with_name('bwb_research.json'),snapshot)
     print(f"Published verified read-only quotes at {iso(now)}")
 
 

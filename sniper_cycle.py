@@ -52,7 +52,7 @@ def run(root,payload,now):
  ledger['paper_only']=True
  ledger['order_submission_enabled']=False
  ledger['capital_usd']='500.00'
- ledger['max_open_defined_risk_usd']='100.00'
+ ledger['max_open_defined_risk_usd']=format(ScanPolicy().max_risk,'.2f')
  # An open spread can only be marked/closed from fresh natural bid/ask.
  if ledger['open']:
   for pos in list(ledger['open']):
@@ -87,7 +87,7 @@ def run(root,payload,now):
  local=now.astimezone(CT)
  allowed=local.weekday()<5 and ENTRY_START<=local.time()<ENTRY_END
  # Exactly one candidate fills only after newer verified quotes on same IDs,
- # with re-confirmed strategy signal, no daily repeat and <$100 risk.
+ # with re-confirmed strategy signal, no daily repeat and the configured fee-inclusive risk limit.
  if allowed and report['status']=='CANDIDATE' and not ledger['open']:
   key=report['symbol']
   pending=ledger['pending_candidates'].get(key)
@@ -106,7 +106,7 @@ def run(root,payload,now):
          and timestamp(short[0]['updated_at'])>timestamp(pending['short_quote_at'])):
       debit=long[2]-short[1]
       risk=debit*100+D('2.60')
-      if D('0')<debit<=D(pending['net_debit']) and risk+account_risk<=D('100'):
+      if D('0')<debit<=D(pending['net_debit']) and risk+account_risk<=ScanPolicy().max_risk:
        entry={'id':f'SNIPER-PAPER-{day}-{key}', 'symbol':key,'status':'OPEN',
          'opened_at':iso(now),'opening_debit':str(debit),
          'maximum_loss_usd':str(risk.quantize(D('.01'))),

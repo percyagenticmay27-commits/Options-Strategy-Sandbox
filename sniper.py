@@ -10,6 +10,7 @@ from datetime import datetime,timezone
 from decimal import Decimal,InvalidOperation
 from typing import Mapping
 from replay import iso,CT
+from completed_bars import bar_close_reason
 
 D=Decimal
 
@@ -57,8 +58,11 @@ def evaluate(payload:Mapping, now:datetime, policy=ScanPolicy()):
     tech=payload.get('technical') or {}
     events=payload.get('events') or {}
     try:
-        if not _age(underlying.get('updated_at'),now) or not _age(tech.get('bar_close_at'),now):
-            out['reason']='SNIPER_SPOT_OR_TECHNICAL_STALE';return out
+        if not _age(underlying.get('updated_at'),now):
+            out['reason']='SNIPER_SPOT_STALE';return out
+        bar_reason=bar_close_reason(tech.get('bar_close_at'),now)
+        if bar_reason:
+            out.update(reason='SNIPER_TECHNICAL_BAR_INVALID',technical_reason=bar_reason);return out
         if events.get('earnings_clearance')!='CLEAR' or events.get('dividend_clearance')!='CLEAR':
             out['reason']='CORPORATE_EVENT_CLEARANCE_UNAVAILABLE';return out
         if not _age(events.get('verified_at_utc'),now,3600):

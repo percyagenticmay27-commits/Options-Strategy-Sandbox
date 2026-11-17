@@ -10,7 +10,7 @@ def evidence(*,symbol='SPY',spot='600',prev_high='598',close='601',vwap='599',em
  q=lambda x,i,delta:dict(instrument_id=i,bid_price=x[0],ask_price=x[1],bid_size=10,ask_size=12,updated_at=at,delta=delta,implied_volatility='0.23',open_interest=300,volume=150)
  return {'source':'ROBINHOOD_MCP_RESEARCH','paper_only':True,'research_only':True,'order_submission_enabled':False,
  'broker_execution_enabled':False,'generated_at_utc':at,'symbol':symbol,'underlying':{'last_price':spot,'updated_at':at},
- 'technical':{'bar_close':close,'bar_close_at':at,'prior_completed_high':prev_high,'prior_completed_low':'597','vwap':vwap,'ema20':ema20,'ema20_prior':'595', 'bars_completed':22,'source':'SPY_5MINUTE_RTH'},
+ 'technical':{'bar_close':close,'bar_close_at':NOW.isoformat(),'prior_completed_high':prev_high,'prior_completed_low':'597','vwap':vwap,'ema20':ema20,'ema20_prior':'595', 'bars_completed':22,'source':'SPY_5MINUTE_RTH'},
  'events':{'earnings_clearance':earnings,'dividend_clearance':'CLEAR',
      'verified_at_utc':at,'clear_through_date':'2026-12-18','provenance':'VERIFIED_ISSUER_CORPORATE_ACTION_CALENDAR'},
  'contracts':[dict(instrument_id='short',symbol=symbol,expiration_date=expiry,right='CALL',strike_price=strike,
@@ -84,7 +84,7 @@ class SniperCycleTests(unittest.TestCase):
    stamp=(NOW+timedelta(seconds=3)).isoformat()
    second['generated_at_utc']=stamp
    second['underlying']['updated_at']=stamp
-   second['technical']['bar_close_at']=stamp
+   second['technical']['bar_close_at']=NOW.isoformat()
    for row in second['contracts']:row['quote']['updated_at']=stamp
    r2=run(base,second,t2)
    self.assertEqual(len(r2['open']),1)

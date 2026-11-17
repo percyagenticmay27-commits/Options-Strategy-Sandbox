@@ -8,24 +8,33 @@ from __future__ import annotations
 from datetime import datetime,timedelta
 from decimal import Decimal as D
 from replay import CT,ET,timestamp,number,spot_at
+from completed_bars import bar_close_reason
 
 def context_for(frame,research,now):
     fail={'ready':False,'reason':'BWB_VERIFIED_53_BAR_CONTEXT_UNAVAILABLE'}
     charts=[x for x in (research.get('market_context') or {}).get('historicals',[]) if x.get('symbol')=='SPY' and x.get('interval')=='5minute' and x.get('bounds')=='regular']
-    if len(charts)!=1:return fail
+    if len(charts)!=1:return {'ready':False,'reason':'BWB_SPY_HISTORY_REQUIRED'}
     quotes=[x.get('quote',{}) for x in (research.get('market_context') or {}).get('equity_quotes',[]) if x.get('symbol')=='SPY' or x.get('quote',{}).get('symbol')=='SPY']
-    if len(quotes)!=1:return fail
+    if len(quotes)!=1:return {'ready':False,'reason':'BWB_FRESH_SPY_REFERENCE_QUOTE_REQUIRED'}
     try:
         q=quotes[0];qt=timestamp(q['venue_last_trade_time']);spy_spot=number(q['last_trade_price']);index_spot=spot_at(frame,now)
-        if spy_spot<=0 or index_spot is None or not -5<=(now-qt).total_seconds()<=60:return fail
+        if spy_spot<=0 or index_spot is None or not -5<=(now-qt).total_seconds()<=60:return {'ready':False,'reason':'BWB_FRESH_SPY_AND_INDEX_REFERENCE_QUOTES_REQUIRED'}
         rows={}
         for r in charts[0]['bars']:
             at=timestamp(r['begins_at'])
             if r.get('session')!='reg' or at+timedelta(minutes=5)>now:continue
-            if at in rows:return fail
+            if r.get('interpolated') is True or at in rows:return {'ready':False,'reason':'BWB_DUPLICATE_OR_INTERPOLATED_BAR'}
+            local=at.astimezone(ET)
+            from datetime import time
+            if not time(9,30)<=local.time().replace(tzinfo=None)<time(16) or local.minute%5 or local.second or local.microsecond:
+                return {'ready':False,'reason':'BWB_RTH_BAR_GRID_INVALID'}
             rows[at]=(number(r['high_price']),number(r['low_price']),number(r['close_price']),number(r['volume']))
         times=sorted(rows)
-        if len(times)<53 or (now-times[-1]).total_seconds()>660:return fail
+        if len(times)<53:return {'ready':False,'reason':'BWB_VERIFIED_53_BAR_CONTEXT_UNAVAILABLE','completed_bars':len(times),'required_bars':53}
+        reason=bar_close_reason(times[-1]+timedelta(minutes=5),now)
+        if reason:return {'ready':False,'reason':'BWB_'+reason}
+        if any(a.astimezone(ET).date()==b.astimezone(ET).date() and b-a!=timedelta(minutes=5) for a,b in zip(times,times[1:])):
+            return {'ready':False,'reason':'BWB_RTH_HISTORY_GRID_GAP'}
         recent=times[-53:]
         closes=[rows[t][2] for t in recent]
         if any(v<=0 for t in recent for v in rows[t]):return fail
@@ -61,6 +70,7 @@ def context_for(frame,research,now):
         if not (target>spy_spot if direction=='UP' else target<spy_spot):return {'ready':False,'reason':'BWB_NO_FORWARD_PRICE_TARGET'}
         ratio=index_spot/spy_spot
         return {'source':'VERIFIED_RTH_VWAP_EMA50_VOLUME_PROFILE','ready':True,
+            'completed_bars':len(times),'current_session_bars':len(today_rows),'last_completed_bar_close_at':(times[-1]+timedelta(minutes=5)).isoformat(),
             'direction':direction,'target':str(target*ratio),'ema50':str(ema*ratio),
             'ema50_slope':str(slope*ratio),'vwap':str(vwap*ratio),
             'relative_volume':str(relative),'target_source':'COMPLETED_5M_BAR_VOLUME_BIN_PROXY_OR_20_BAR_RANGE',

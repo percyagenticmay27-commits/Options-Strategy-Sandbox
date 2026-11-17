@@ -120,6 +120,9 @@ def execute_scan(root,now,snapshots,session,calendar,bwb_snapshots=None):
             else:
                 for f in good:f.update(event_clear=True,calendar_status='CLEAR')
                 frames=good
+    # Independent technical preflight is recorded before any strike selector.
+    from market_data_first import plan as technical_plan
+    atomic(root/'state/technical_collection_plan.json',technical_plan(chosen or {},session,now))
     # Per-cycle coverage and exact reasons are visible even if no spread fills.
     # Each profile is evaluated separately on the SAME verified frames; no
     # synthetic quotes, relaxed risk limits or replacement main-bot data.
@@ -160,7 +163,7 @@ def execute_scan(root,now,snapshots,session,calendar,bwb_snapshots=None):
     report=forward_cycle(root,frames,now,status,source=SOURCE)
     # BWB can consume a separately verified and newly refreshed read-only
     # research snapshot. It is not constrained by Low Delta's UP-only gate.
-    bwb_chosen=choose_snapshot(bwb_snapshots or [],now) if bwb_snapshots else chosen
+    bwb_chosen=(choose_snapshot(bwb_snapshots or [],now) if bwb_snapshots else None) or chosen
     bwb_source='INDEPENDENT_BWB_SNAPSHOT' if bwb_snapshots and bwb_chosen else 'SHARED_VERIFIED_SNAPSHOT'
     if bwb_chosen is chosen:
         bwb_frames=frames
