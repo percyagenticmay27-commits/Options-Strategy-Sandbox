@@ -209,6 +209,30 @@ def execute_scan(root,now,snapshots,session,calendar,bwb_snapshots=None):
         'open_positions':len(sniper_state.get('open',[])),
         'performance':sniper_state.get('performance',{}),
         'paper_only':True,'broker_submissions':0}
+    # Barney alternative menu is only an independent observation; never
+    # passes a candidate to the paper fill engine or changes existing books.
+    from barney_matrix import compare as barney_compare
+    bwb_by_symbol={x.get('symbol'):x for x in bwb.get('latest_evaluations',[])
+                   if isinstance(x,dict) and x.get('symbol')}
+    barney_rows=[]
+    for frame in frames:
+        symbol=frame['symbol']
+        context=(next((f.get('bwb_context',{}) for f in bwb_frames if f.get('symbol')==symbol),{}) or {})
+        direction={'UP':'BULLISH','DOWN':'BEARISH'}.get(context.get('direction'),'UNCONFIRMED')
+        profiles=(strategy_audit.get(symbol,{}) or {}).get('profiles',{})
+        eligible=next((v for v in profiles.values() if v.get('status')=='ELIGIBLE_PENDING_SECOND_QUOTE'),None)
+        credit=({'status':'CANDIDATE','reason':'SECOND_NEWER_LEG_QUOTES_REQUIRED',
+                 'maximum_loss_usd':eligible['maximum_loss'],
+                 'maximum_profit_usd':eligible['maximum_profit']} if eligible else None)
+        result=barney_compare(direction,bwb=bwb_by_symbol.get(symbol),credit=credit,now=now)
+        result['symbol']=symbol
+        barney_rows.append(result)
+    barney_report={'at':iso(now),'status':'RESEARCH_ONLY',
+                   'candidates':barney_rows,'paper_only':True,'broker_submissions':0}
+    atomic(root/'state/barney_matrix_latest.json',barney_report)
+    report['barney_matrix']={'status':'RESEARCH_ONLY','source':'state/barney_matrix_latest.json',
+                             'evaluated_symbols':[x['symbol'] for x in barney_rows],
+                             'paper_entries':0,'broker_submissions':0}
     shadow=observe_regime_shadow(root,frames,now)
     report['regime_shadow']={'status':'OBSERVING','strategies':4,
       'evaluations':shadow['latest_evaluations'],'stats':shadow['stats'],
