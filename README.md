@@ -247,3 +247,7 @@ The independent Sniper SPY/QQQ CALL/PUT debit-spread paper research also permits
 ## Barney Strategy Matrix: independent forward experiments
 
 See [docs/BARNEY_STRATEGY_MATRIX.md](docs/BARNEY_STRATEGY_MATRIX.md) for the shared OPTION-001/Sandbox research matrix and stage-by-stage rollout. Use `python3 barney_matrix.py` only as a Python import (for example, `from barney_matrix import compare`); the returned candidate scorecard is **research only** with zero paper fills and zero broker submissions. BWB and debit candidates remain governed by their respective existing evaluators, second-quote rules and independent ledgers. A hypothetical Barney defense cannot bypass their stops or become an order.
+
+## November 18 — bearish credit research and exact-leg quote refresh
+
+[Read the implemented Sandbox bearish-shadow/quote-coverage repair](docs/BEARISH_SHADOW_AND_COLLECTION_REPAIR.md). The original bullish/neutral low-delta and comparison books remain intact. A separate bearish call-credit shadow evaluates both original delta bands on identical real observations, with its own ledger and paper-only results. Coverage reports now enumerate short delta/wing gaps by put versus call, and eligible queued spreads publish exact leg IDs in `state/second_quote_request.json` for the connected collector to requery immediately using independent newer provider timestamps. If no provider responds, no fill. The existing contract coverage, quote freshness, $400 maximum open defined risk and 15% Sandbox return-to-risk rules are preserved.

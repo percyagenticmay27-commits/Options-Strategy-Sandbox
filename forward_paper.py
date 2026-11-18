@@ -55,6 +55,31 @@ def forward_cycle(root,frames,now,feed,*,source='ROBINHOOD_MCP_RESEARCH'):
     # and the risk of a partially updated multi-leg ledger.
     result=compare({'kind':'HISTORICAL','source':'STRATEGY_B_VERIFIED_FORWARD_OBSERVATIONS',
                     'frames':total})
+    # New bearish-direction research is an independent paper book, using the
+    # exact same verified frames and $400/$500 limits. The original two books
+    # remain unchanged and retain their own P/L and events.
+    bearish=compare({'kind':'HISTORICAL',
+                    'source':'SANDBOX_BEARISH_VERIFIED_FORWARD_SHADOW',
+                    'frames':total},bearish_shadow=True,bearish_only=True)
+    bearish_models={}
+    for name,model in bearish['profiles'].items():
+        bearish_trades=[t for t in model['trades'] if any(l['right']=='C' for l in t['legs'])]
+        bearish_models[name]={
+            'profile':name,'strategy':'BEAR_CALL_CREDIT_SHADOW',
+            'status':'PAPER_EXPERIMENT','trades':bearish_trades,
+            'decisions':[d for d in model['decisions'] if d.get('direction')=='DOWN' or
+                         (d.get('gate_diagnostics') or {}).get('direction')=='DOWN'],
+            'decision_counts':model['decision_counts'],
+            'open_count':sum(t['status']!='CLOSED' for t in bearish_trades),
+            'completed_count':sum(t['status']=='CLOSED' for t in bearish_trades),
+            'realized_pnl':str(sum((Decimal(t['pnl']) for t in bearish_trades if t['pnl'] is not None),Decimal(0))),
+            'max_risk_per_book':str(bearish['combined_risk_limit']),
+            'min_return':str(bearish['assumptions']['minimum_net_return']),
+            'paper_only':True,'broker_submissions':0}
+    atomic(state/'bearish_call_shadow_ledger.json',{
+        'schema_version':'1.0','generated_at_utc':iso(now),
+        'source':'SAME_VERIFIED_FORWARD_FRAMES_AS_CONTROL',
+        'profiles':bearish_models,'paper_only':True,'broker_submissions':0})
     profiles={}
     all_positions=[]
     for name,model in result['profiles'].items():
@@ -113,6 +138,10 @@ def forward_cycle(root,frames,now,feed,*,source='ROBINHOOD_MCP_RESEARCH'):
        'paper_sell_events':sum(e['type']=='PAPER_SELL' for e in past+added),
        'new_frames':len(new),'stored_frames':len(total),
        'profiles':profiles,
+       'bearish_shadow':{'status':'PAPER_EXPERIMENT','ledger':'state/bearish_call_shadow_ledger.json',
+                         'open_positions':sum(v['open_count'] for v in bearish_models.values()),
+                         'completed_positions':sum(v['completed_count'] for v in bearish_models.values()),
+                         'paper_only':True,'broker_submissions':0},
        'shadow_cutoff_1030':{name:{'decision_counts':val['decision_counts'],
             'metrics':val['metrics']} for name,val in result['cutoff_observation']['profiles'].items()}}
     if new:atomic(state/'forward_frames.json',{'schema_version':'1.0','frames':total})

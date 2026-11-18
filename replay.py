@@ -142,7 +142,7 @@ def spot_at(frame, now):
     return None
 
 
-def entry_gate_detail(frame, now, cutoff=ENTRY_CUTOFF):
+def entry_gate_detail(frame, now, cutoff=ENTRY_CUTOFF, *, bearish_shadow=False):
     """Explain every independent technical/data/event gate without changing eligibility."""
     conditions={
       'session_verified': market_open(frame,now),
@@ -152,6 +152,7 @@ def entry_gate_detail(frame, now, cutoff=ENTRY_CUTOFF):
       'event_clear': frame.get('event_clear') is True,
       'technical_clear': frame.get('technical_clear') is True,
       'direction_up_or_neutral_range': frame.get('direction')=='UP' or
+                (bearish_shadow and frame.get('direction')=='DOWN') or
                 (frame.get('direction')=='NEUTRAL' and frame.get('range_clear') is True),
     }
     reasons=[]
@@ -164,12 +165,12 @@ def entry_gate_detail(frame, now, cutoff=ENTRY_CUTOFF):
                       ('direction_up_or_neutral_range','DIRECTION_OR_RANGE_GATE')]:
         if not conditions[name]:reasons.append(code)
     if frame.get('symbol') not in ROOTS:reasons.insert(0,'UNSUPPORTED_SYMBOL')
-    return {'primary':entry_gate(frame,now,cutoff), 'reasons':reasons,
+    return {'primary':entry_gate(frame,now,cutoff,bearish_shadow=bearish_shadow), 'reasons':reasons,
             'checks':conditions,'signal_reason':frame.get('signal_reason'),
             'direction':frame.get('direction')}
 
 
-def entry_gate(frame, now, cutoff=ENTRY_CUTOFF):
+def entry_gate(frame, now, cutoff=ENTRY_CUTOFF, *, bearish_shadow=False):
     if frame["symbol"] not in ROOTS:
         return "UNSUPPORTED_SYMBOL"
     if not market_open(frame, now):
@@ -180,7 +181,7 @@ def entry_gate(frame, now, cutoff=ENTRY_CUTOFF):
         return "SIGNAL_OR_SPOT_UNAVAILABLE"
     if frame.get("event_clear") is not True or frame.get("technical_clear") is not True:
         return "EVENT_OR_TECHNICAL_GATE"
-    if frame.get("direction") == "UP":
+    if frame.get("direction") == "UP" or (bearish_shadow and frame.get("direction") == "DOWN"):
         return None
     if frame.get("direction") == "NEUTRAL" and frame.get("range_clear") is True:
         return None
@@ -233,7 +234,7 @@ def eligible_short(q, spot, band):
             and (q.contract.strike < spot if q.contract.right == "P" else q.contract.strike > spot))
 
 
-def selection_diagnostics(frame, now, quotes, band, remaining):
+def selection_diagnostics(frame, now, quotes, band, remaining, *, bearish_shadow=False):
     """Audit candidate coverage without changing the executable selector."""
     spot=spot_at(frame,now)
     if spot is None:
@@ -241,7 +242,7 @@ def selection_diagnostics(frame, now, quotes, band, remaining):
     day=now.astimezone(ET).date()
     shorts=[q for q in quotes.values() if q.delta is not None and
         eligible_short(q,spot,band) and 0 <= (q.contract.expiry-day).days <= 1 and
-        (frame.get('direction')=='NEUTRAL' or q.contract.right=='P')]
+        (frame.get('direction')=='NEUTRAL' or q.contract.right==('C' if bearish_shadow and frame.get('direction')=='DOWN' else 'P'))]
     valid_shorts=[q for q in shorts if q.bid_size>=1 and q.bid>0]
     all_wings=0; positive_credit=0; risk_pass=0; return_pass=0
     for short in valid_shorts:
@@ -274,7 +275,7 @@ def selection_diagnostics(frame, now, quotes, band, remaining):
       'required_return_to_risk':str(MIN_RETURN)}
 
 
-def selection(frame, now, quotes, band, remaining):
+def selection(frame, now, quotes, band, remaining, *, bearish_shadow=False):
     target = band[2]
     spot = spot_at(frame, now)
     day = now.astimezone(ET).date()
@@ -283,7 +284,9 @@ def selection(frame, now, quotes, band, remaining):
         s = short.contract
         if not eligible_short(short, spot, band) or not 0 <= (s.expiry - day).days <= 1:
             continue
-        if s.right == "C" and frame["direction"] != "NEUTRAL":
+        if s.right == "C" and frame["direction"] != "NEUTRAL" and not (bearish_shadow and frame["direction"] == "DOWN"):
+            continue
+        if bearish_shadow and frame["direction"] == "DOWN" and s.right != "C":
             continue
         for long in quotes.values():
             leg = long.contract
@@ -297,6 +300,8 @@ def selection(frame, now, quotes, band, remaining):
             sides[s.right].append((s, leg, abs(abs(short.delta) - target)))
     if frame["direction"] == "UP":
         candidates = (((s,), (leg,), dist) for s, leg, dist in sides["P"])
+    elif bearish_shadow and frame["direction"] == "DOWN":
+        candidates = (((s,), (leg,), dist) for s, leg, dist in sides["C"])
     else:
         candidates = (((ps, cs), (pl, cl), pd + cd)
                       for (ps, pl, pd), (cs, cl, cd) in product(sides["P"], sides["C"])
@@ -397,7 +402,7 @@ def summarize(trades, marked_dd, mark_count, mark_gaps):
     }
 
 
-def replay(frames, settlements, horizon, band, cutoff):
+def replay(frames, settlements, horizon, band, cutoff, *, bearish_shadow=False, bearish_only=False):
     open_positions = {}
     orders = {}
     trades = []
@@ -452,7 +457,9 @@ def replay(frames, settlements, horizon, band, cutoff):
                 continue
             day = now.astimezone(ET).date()
             remaining = min(RISK_CAP, CAPITAL + realized) - sum(p.risk for p in open_positions.values())
-            gate = entry_gate(frame, now, cutoff)
+            gate = entry_gate(frame, now, cutoff, bearish_shadow=bearish_shadow)
+            if bearish_only and frame.get('direction')!='DOWN' and gate is None:
+                gate='BEARISH_SHADOW_NO_DOWN_SIGNAL' 
             order = orders.pop(symbol, None)
             if order:
                 fill = price(order.spread, quotes, newer_than=order.at)
@@ -472,22 +479,33 @@ def replay(frames, settlements, horizon, band, cutoff):
                         continue
                 unfilled += 1
                 stats["ORDER_UNFILLED"] += 1
-            detail = entry_gate_detail(frame,now,cutoff)
+            detail = entry_gate_detail(frame,now,cutoff,bearish_shadow=bearish_shadow)
+            if bearish_only and frame.get('direction')!='DOWN':
+                detail['primary']=gate
+                detail['reasons'].append('BEARISH_SHADOW_NO_DOWN_SIGNAL')
             reason = detail['reasons'][0] if gate and detail['reasons'] else gate
             if not reason:
                 if daily_entries[day] >= 2 or remaining <= 0:
                     reason = "ACCOUNT_LIMIT"
                 else:
-                    candidate = selection(frame, now, quotes, band, remaining)
+                    candidate = selection(frame, now, quotes, band, remaining,bearish_shadow=bearish_shadow)
                     if candidate:
                         spread, credit = candidate
                         orders[symbol] = Pending(spread, credit, now, frame["direction"])
                         reason = "ORDER_QUEUED"
+                        queued_legs = [leg.key for leg in spread.shorts + spread.longs]
+                        queued_details = {"leg_ids":queued_legs,"direction":frame["direction"],
+                                          "quoted_at":{k:iso(quotes[k].at) for k in queued_legs},
+                                          "credit":str(credit),"max_loss":money(economics(spread,credit)[1])}
                     else:
                         reason = "NO_ELIGIBLE_SPREAD"
             stats[reason] += 1
-            decisions.append({"at": iso(now), "symbol": symbol, "reason": reason,
-                              "gate_diagnostics":detail})
+            row={"at": iso(now), "symbol": symbol, "reason": reason,
+                 "gate_diagnostics":detail}
+            if reason == "ORDER_QUEUED":row.update(queued_details)
+            elif reason == "NO_ELIGIBLE_SPREAD":
+                row["selection_diagnostics"]=selection_diagnostics(frame,now,quotes,band,remaining,bearish_shadow=bearish_shadow)
+            decisions.append(row)
         marks = [(p, price(p.spread, quotes_by_symbol.get(s, {}), closing=True)) for s, p in open_positions.items()]
         if any(mark is None for _, mark in marks):
             mark_gaps += 1
@@ -506,7 +524,7 @@ def replay(frames, settlements, horizon, band, cutoff):
             "metrics": summarize(trades, marked_dd, mark_count, mark_gaps)}
 
 
-def compare(dataset):
+def compare(dataset, *, bearish_shadow=False, bearish_only=False):
     kind = dataset["kind"]
     if kind not in {"HISTORICAL", "SYNTHETIC_FIXTURE"} or not dataset.get("source"):
         raise ValueError("Dataset must declare its kind and source")
@@ -527,7 +545,7 @@ def compare(dataset):
         raise ValueError("Replay horizon precedes an input observation")
     profiles_by_cutoff = {
         cutoff: {name: {"short_delta_min": str(band[0]), "short_delta_max": str(band[1]),
-                        **replay(frames, settlements, horizon, band, cutoff)}
+                        **replay(frames, settlements, horizon, band, cutoff, bearish_shadow=bearish_shadow, bearish_only=bearish_only)}
                  for name, band in PROFILES.items()}
         for cutoff in (ENTRY_CUTOFF, OBSERVED_CUTOFF)
     }
@@ -546,6 +564,7 @@ def compare(dataset):
                      "settlement_records": sum(map(len, settlements.values()))},
         "promotion_status": "RESEARCH_ONLY",
         "comparison_scope": "Matched delta-band experiment. The comparison profile is a delta-filter proxy.",
+        "bearish_shadow_enabled":bearish_shadow,
         "profiles": profiles_by_cutoff[ENTRY_CUTOFF],
         "cutoff_observation": {
             "mode": "SHADOW_REPLAY", "entry_window_central": "10:00–10:30",

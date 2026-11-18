@@ -11,7 +11,8 @@ class CoverageTests(unittest.TestCase):
   self.assertEqual(plan['max_quote_age_seconds'],60)
   self.assertEqual(plan['symbols']['XSP']['protective_wing_offsets_points'],['1','2','3'])
   self.assertEqual(plan['symbols']['SPX']['protective_wing_offsets_points'],['5','10','15'])
-  self.assertIn('ONLY_IF',plan['second_quote_batch'])
+  self.assertIn('IMMEDIATELY',plan['second_quote_batch'])
+  self.assertEqual(plan['second_quote_handoff_path'],'state/second_quote_request.json')
  def test_fresh_but_two_contracts_is_insufficient_coverage(self):
   def contract(i,strike,delta):
    return {'id':str(i),'type':'put','strike_price':str(strike),'expiration_date':'2026-11-16',
@@ -35,7 +36,8 @@ class CoverageTests(unittest.TestCase):
        'ask_price':'0.45','bid_size':'10','ask_size':'10','delta':str(delta)}}
   rows=[row(i,734+i, -0.12 if i<6 else -0.19) for i in range(16)]
   target=audit({'symbols':{'XSP':{'contracts':rows}}},NOW)['symbols']['XSP']
-  self.assertTrue(target['coverage_target_met'])
+  self.assertFalse(target['coverage_target_met'])
+  self.assertIn('INSUFFICIENT_CALL_STRIKES',target['missing_coverage'])
   self.assertGreater(target['potential_wing_pairs']['comparison'],0)
   self.assertEqual(target['fresh_executable_contracts'],16)
  def test_stale_quotes_do_not_count(self):

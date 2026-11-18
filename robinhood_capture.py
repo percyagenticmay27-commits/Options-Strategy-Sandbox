@@ -95,13 +95,19 @@ def chart_context(chart, session, now):
     prior_close, _, prior_vwap = levels[-2]
     close, low, vwap = levels[-1]
     bullish = close > vwap > prior_vwap and (prior_close <= prior_vwap or low <= vwap)
+    # Independent bearish observation: confirmed VWAP breakdown or retest;
+    # it is not an automatic promotion to the original bullish-only book.
+    high = bars[times[-1]][0]
+    prior_high = bars[times[-2]][0]
+    bearish = close < vwap < prior_vwap and (prior_close >= prior_vwap or high >= vwap)
+    if bullish and bearish:raise AssertionError('CONFLICTING_VWAP_DIRECTION')
     return {
         "signal_at": iso(now), "signal_source": "ROBINHOOD_SPY_RTH_5MIN_VWAP",
         "signal_bar_at": iso(times[-1] + BAR_LENGTH),
-        "signal_reason": "VWAP_RECLAIM_OR_SUPPORT" if bullish else "VWAP_SETUP_UNCONFIRMED",
+        "signal_reason": "VWAP_RECLAIM_OR_SUPPORT" if bullish else "VWAP_BREAKDOWN_OR_RESISTANCE" if bearish else "VWAP_SETUP_UNCONFIRMED",
         "spy_close": str(close), "spy_vwap": str(vwap),
-        "direction": "UP" if bullish else "UNCONFIRMED",
-        "technical_clear": bullish,
+        "direction": "UP" if bullish else "DOWN" if bearish else "UNCONFIRMED",
+        "technical_clear": bullish or bearish,
     }
 
 

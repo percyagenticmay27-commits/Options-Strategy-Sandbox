@@ -132,9 +132,18 @@ def execute_scan(root,now,snapshots,session,calendar,bwb_snapshots=None):
         gate=entry_gate_detail(f,now)
         item={'symbol':f['symbol'],'at':iso(now),'usable_quotes':len(quotes),
               'gate':gate,'profiles':{},'paper_only':True}
+        # Unconditional diagnostics: a technical gate rejection must not hide
+        # missing delta shorts, wings or the economic reason to wait.
+        item['signal_evidence']={k:f.get(k) for k in ('direction','signal_reason','signal_at','signal_bar_at',
+                      'spy_close','spy_vwap','technical_clear','range_clear')}
+        item['quote_coverage']={'puts':sum(q.contract.right=='P' for q in quotes.values()),
+                                'calls':sum(q.contract.right=='C' for q in quotes.values()),
+                                'distinct_put_strikes':len({q.contract.strike for q in quotes.values() if q.contract.right=='P'}),
+                                'distinct_call_strikes':len({q.contract.strike for q in quotes.values() if q.contract.right=='C'})}
         for name,band in PROFILES.items():
             if gate['primary']:
-                item['profiles'][name]={'status':'BLOCKED','reason_codes':gate['reasons']}
+                item['profiles'][name]={'status':'BLOCKED','reason_codes':gate['reasons'],
+                    'selection_diagnostics_if_gate_cleared':selection_diagnostics(f,now,quotes,band,RISK_CAP)}
             else:
                 proposed=selection(f,now,quotes,band,RISK_CAP)
                 if proposed is None:
@@ -154,6 +163,18 @@ def execute_scan(root,now,snapshots,session,calendar,bwb_snapshots=None):
     if not frames:
         strategy_audit={'status':'DATA_UNAVAILABLE','reason':status,
                         'required':'FRESH_SPX_XSP_INDEX_QUOTES_OPTION_CONTRACTS_COMPLETED_SPY_5MIN_BARS'}
+    # Bearish shadow diagnostics are explicitly separate from the original
+    # bullish/neutral controlled books. Every gate is still enforced.
+    bearish_audit={}
+    for f in frames:
+        quotes=quotes_at(f,now)
+        g=entry_gate_detail(f,now,bearish_shadow=True)
+        bearish_audit[f['symbol']]={'gate':g,'quote_count':len(quotes),
+          'profiles':{name:selection_diagnostics(f,now,quotes,band,RISK_CAP,bearish_shadow=True)
+                      for name,band in PROFILES.items()},
+          'paper_only':True,'broker_submissions':0}
+    atomic(root/'state/bearish_selection_diagnostics.json',
+           {'at':iso(now),'symbols':bearish_audit,'paper_only':True,'broker_submissions':0})
     atomic(root/'state/strategy_evaluation_audit.json',
            {'generated_at_utc':iso(now),'feed_status':status,'symbols':strategy_audit,
             'paper_only':True,'broker_submissions':0})
@@ -239,6 +260,7 @@ def execute_scan(root,now,snapshots,session,calendar,bwb_snapshots=None):
       'paper_entries':0,'broker_submissions':0}
     publish_shadow_comparison(root,Path('/home/tradebot/Trade-Option-Bot/results/option_001_positions.json'))
     report['candidate_symbols']=[f['symbol'] for f in frames]
+    report['bearish_selection_diagnostics']='state/bearish_selection_diagnostics.json'
     report['strategy_evaluation_audit']=strategy_audit
     report['bwb_data_coverage']=bwb_coverage
     report['metadata_rejections']=invalid_metadata if chosen else 0

@@ -69,7 +69,27 @@ def pending_second_quotes(root,now):
             if row.get('symbol'):latest[row['symbol']]=row
         for row in latest.values():
             if row.get('reason')=='ORDER_QUEUED' and recent(row.get('at'),now):
-                queued.append({'profile':name,'symbol':row['symbol'],'at':row['at']})
+                queued.append({'profile':name,'symbol':row['symbol'],'at':row['at'],
+                               'leg_ids':row.get('leg_ids',[]),
+                               'first_quote_at_by_id':row.get('quoted_at',{}),
+                               'first_credit':row.get('credit'),
+                               'maximum_loss':row.get('max_loss'),
+                               'direction':row.get('direction')})
+    # Independently queued bearish call-credit shadows need the same exact
+    # second quote, never automatic fill from the first observation.
+    bear=load(Path(root)/'state/bearish_call_shadow_ledger.json',{})
+    for name,model in bear.get('profiles',{}).items():
+        latest={}
+        for row in model.get('decisions',[]):
+            if row.get('symbol'):latest[row['symbol']]=row
+        for row in latest.values():
+            if row.get('reason')=='ORDER_QUEUED' and recent(row.get('at'),now):
+                queued.append({'profile':'bearish_'+name,'symbol':row['symbol'],'at':row['at'],
+                               'leg_ids':row.get('leg_ids',[]),
+                               'first_quote_at_by_id':row.get('quoted_at',{}),
+                               'first_credit':row.get('credit'),
+                               'maximum_loss':row.get('max_loss'),
+                               'direction':'DOWN'})
     bwb=load(Path(root)/'state/bwb_paper_ledger.json',{})
     for symbol,item in bwb.get('pending',{}).items():
         if recent(item.get('at'),now):
@@ -123,6 +143,26 @@ def recover_cycle(root,*,now,publish,validate,run):
                   new_paper_events=output.get('new_paper_events',0),
                   feed_status=output.get('feed_status'))
     pending=pending_second_quotes(root,datetime.now(timezone.utc)) if mode_at(now)=='ENTRY_AND_MANAGEMENT' else []
+    # The connector's exact-leg handoff is an atomic durable request; no
+    # broker access here and no synthetic second batch. Existing queued
+    # orders remain short-lived (60 seconds) under the replay engine.
+    handoff=state/'second_quote_request.json'
+    valid_pending=[p for p in pending if p.get('leg_ids') and p.get('at')]
+    if valid_pending:
+        atomic(handoff,{
+            'status':'REQUEST_NEW_AUTHENTICATED_ROBINHOOD_QUOTES_NOW',
+            'requested_at_utc':iso(datetime.now(timezone.utc)),
+            'reason':'FIRST_BATCH_SPREAD_QUEUED',
+            'max_quote_age_seconds':60,
+            'requires_exact_leg_ids':True,
+            'requires_provider_timestamp_newer_than_first_batch':True,
+            'candidates':valid_pending,
+            'destination':'state/incoming_robinhood_batch.json',
+            'next_action':'FETCH_FRESH_EXACT_LEG_QUOTES_AND_INVOKE_REFRESH_RECOVERY_IMMEDIATELY',
+            'paper_only':True,'broker_submissions':0})
+    else:
+        handoff.unlink(missing_ok=True)
+    result['exact_leg_second_quote_request']=str(handoff.relative_to(root)) if valid_pending else None
     result['second_quote_required']=bool(pending)
     result['second_quote_candidates']=pending
     result['next_action']='COLLECT_GENUINELY_NEW_OPTION_LEG_QUOTES_WITHIN_60_SECONDS' if pending else 'NO_SECOND_BATCH_REQUIRED'

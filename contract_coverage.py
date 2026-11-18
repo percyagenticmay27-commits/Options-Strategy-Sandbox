@@ -19,7 +19,9 @@ from replay import PROFILES,RISK_CAP,MIN_RETURN,iso,recent
 # books and the independent BWB; no guessed deltas or synthetic quotes.
 WING_STRIKES={'SPX':('5','10','15'),'XSP':('1','2','3')}
 MIN_UNIQUE_PUT_STRIKES=6
+MIN_UNIQUE_CALL_STRIKES=6
 MIN_QUOTED_CONTRACTS=12
+MIN_MATCHING_WINGS_PER_BAND=1
 
 def request_plan(now=None):
     now=now or datetime.now(timezone.utc)
@@ -28,11 +30,14 @@ def request_plan(now=None):
        'expiry':'CURRENT_VERIFIED_PM_SETTLED_SESSION_EXPIRATION',
        'rights':['put','call'],
        'short_delta_bands':{k:[str(b[0]),str(b[1])] for k,b in PROFILES.items()},
-       'short_contracts':'ALL_MATCHING_VERIFIED_DELTA_BANDS_AND_ADJACENT_STRIKES',
+       'short_contracts':'PAGINATE_BOTH_PUT_AND_CALL_CHAINS;COLLECT_ALL_VERIFIED_0.10_TO_0.25_DELTA_SHORTS_PLUS_ADJACENT_STRIKES',
+       'min_priority_shorts_per_band_per_right':3,
+       'priority_policy':'FIRST_COLLECT_ACTUAL_IN_BAND_SHORTS_THEN_FETCH_EACH_LISTED_SAME_EXPIRY_PROTECTIVE_WING_BY_EXACT_ID_AND_FRESH_QUOTE',
        'protective_wing_offsets_points':list(WING_STRIKES[s]),
        'wing_policy':'FETCH_EXISTING_LOWER_STRIKE_PUT_WINGS_AND_HIGHER_STRIKE_CALL_WINGS;REQUIRE_SAME_EXPIRY_AND_PM_SETTLEMENT',
        'bwb_policy':'COLLECT_ADJACENT_THREE_LEG_PUT_AND_CALL_STRIKE_LADDERS_WITH_BOTH_SIDES_EXECUTABLE',
        'required_min_unique_put_strikes':MIN_UNIQUE_PUT_STRIKES,
+       'required_min_unique_call_strikes':MIN_UNIQUE_CALL_STRIKES,
        'target_min_quoted_contracts':MIN_QUOTED_CONTRACTS,
        'contract_metadata':'SOURCE_VERIFIED_CHAIN_ID_EXERCISE_SETTLEMENT_TRADABILITY_MULTIPLIER',
        'quote_fields':'ORIGINAL_PROVIDER_TIMESTAMPS_EXECUTABLE_BID_ASK_SIZES_ALL_GREEKS_OPEN_INTEREST_VOLUME',
@@ -42,7 +47,8 @@ def request_plan(now=None):
       'max_risk_per_book_usd':str(RISK_CAP),
       'minimum_net_profit_to_max_loss':str(MIN_RETURN),
       'max_quote_age_seconds':60,
-      'second_quote_batch':'ONLY_IF_AN_EXACT_ELIGIBLE_PAPER_SPREAD_WAS_QUEUED;REQUERY_ITS_LEG_IDS_WITH_NEW_PROVIDER_TIMESTAMPS',
+      'second_quote_batch':'AFTER_QUEUED_FIRST_BATCH_IMMEDIATELY_FETCH_EXACT_LEG_IDS_PUBLISHED_IN_state/second_quote_request.json;REQUIRE_PROVIDER_TIMESTAMPS_NEWER_THAN_FIRST_QUOTES',
+      'second_quote_handoff_path':'state/second_quote_request.json',
       'paper_only':True,'broker_submissions':0,
       'important':'Coverage targets are research collection goals, not trading eligibility or a reason to invent missing instruments.'}
 
@@ -70,6 +76,7 @@ def audit(raw,now=None):
                 if lo<=delta<=hi:shorts[name].append((right,strike,r.get('expiration_date')))
         available={(r,strike,expiry) for r,strike,expiry,_ in fresh}
         matching_wings={}
+        wings_by_right={}
         for name,ss in shorts.items():
             pairs=[]
             for side,strike,expiry in ss:
@@ -78,12 +85,27 @@ def audit(raw,now=None):
                     other=strike-off if side=='put' else strike+off
                     if (side,other,expiry) in available:pairs.append((side,str(strike),str(other)))
             matching_wings[name]=len(pairs)
+            wings_by_right[name]={'put':sum(x[0]=='put' for x in pairs),
+                                  'call':sum(x[0]=='call' for x in pairs)}
         puts=len({strike for side,strike,_,_ in fresh if side=='put'})
+        calls=len({strike for side,strike,_,_ in fresh if side=='call'})
+        # Coverage is complete only if both directions, both delta books and
+        # their actual listed protective wings have been fetched.
+        gaps=[]
+        if len(fresh)<MIN_QUOTED_CONTRACTS:gaps.append('INSUFFICIENT_FRESH_EXECUTABLE_QUOTES')
+        if puts<MIN_UNIQUE_PUT_STRIKES:gaps.append('INSUFFICIENT_PUT_STRIKES')
+        if calls<MIN_UNIQUE_CALL_STRIKES:gaps.append('INSUFFICIENT_CALL_STRIKES')
+        for book in PROFILES:
+            for right in ('put','call'):
+                if not any(q[0]==right for q in shorts[book]):gaps.append(f'{book.upper()}_{right.upper()}_SHORT_MISSING')
+                if wings_by_right[book][right]<MIN_MATCHING_WINGS_PER_BAND:gaps.append(f'{book.upper()}_{right.upper()}_WING_MISSING')
         result[symbol]={'received_contracts':len(rows),'fresh_executable_contracts':len(fresh),
-          'unique_put_strikes':puts,'shorts_in_delta_bands':{n:len(v) for n,v in shorts.items()},
-          'potential_wing_pairs':matching_wings,
-          'coverage_target_met':len(fresh)>=MIN_QUOTED_CONTRACTS and puts>=MIN_UNIQUE_PUT_STRIKES,
-          'reason':'INSUFFICIENT_WING_AND_STRIKE_COVERAGE' if len(fresh)<MIN_QUOTED_CONTRACTS or puts<MIN_UNIQUE_PUT_STRIKES else 'COVERAGE_TARGET_MET'}
+          'unique_put_strikes':puts,'unique_call_strikes':calls,
+          'shorts_in_delta_bands':{n:len(v) for n,v in shorts.items()},
+          'shorts_by_right':{name:{right:sum(x[0]==right for x in ss) for right in ('put','call')} for name,ss in shorts.items()},
+          'potential_wing_pairs':matching_wings,'matching_wings_by_right':wings_by_right,
+          'missing_coverage':gaps,'coverage_target_met':not gaps,
+          'reason':'INCOMPLETE_DELTA_BAND_AND_WING_COVERAGE' if gaps else 'COVERAGE_TARGET_MET'}
     return {'observed_at_utc':iso(now),'symbols':result,'paper_only':True,'broker_submissions':0,
             'notice':'Coverage is not a trade approval. Use the unmodified strategy selector for economics.'}
 
