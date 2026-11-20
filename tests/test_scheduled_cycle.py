@@ -44,8 +44,46 @@ class ScheduledCycleTests(unittest.TestCase):
   self.scan.assert_not_called()
  def test_regular_stale_cycle_becomes_pending(self):
   result=coordinate(self.root,NOW,run_recovery=self.recover,run_scan=self.scan)
-  self.assertEqual(result['status'],'WAITING_FOR_FRESH_CONNECTOR_BATCH')
+  self.assertEqual(result['status'],'PENDING_CONNECTOR_REFRESH')
   self.recover.assert_not_called();self.scan.assert_not_called()
+ def test_stale_detected_generates_durable_refresh_instructions(self):
+  result=coordinate(self.root,NOW,run_recovery=self.recover,run_scan=self.scan)
+  request=json.loads((self.root/'state/refresh_request.json').read_text())
+  self.assertEqual(result['status'],'PENDING_CONNECTOR_REFRESH')
+  self.assertTrue(result['refresh_requested'])
+  self.assertEqual(result['provider_fetch_status'],'AUTHENTICATED_COLLECTOR_REQUIRED')
+  self.assertEqual(request['requested_at_utc'],iso(NOW))
+  self.assertEqual(request['collector_action'],'FETCH_NEW_AUTHENTICATED_ROBINHOOD_READ_ONLY_BATCH_AND_RETRY')
+  self.assertEqual(request['required_option_rights'],['put','call'])
+  self.assertTrue(request['requires_original_provider_timestamps'])
+  self.assertEqual(request['broker_submissions'],0)
+  self.recover.assert_not_called()
+ def test_repeated_watchdog_stale_retry_preserves_request_timestamp(self):
+  coordinate(self.root,NOW,run_recovery=self.recover,run_scan=self.scan)
+  later=NOW+timedelta(seconds=25)
+  follow=coordinate(self.root,later,run_recovery=self.recover,run_scan=self.scan)
+  request=json.loads((self.root/'state/refresh_request.json').read_text())
+  self.assertEqual(request['requested_at_utc'],iso(NOW))
+  self.assertEqual(request['retry_count'],2)
+  self.assertEqual(follow['refresh_attempt_count'],2)
+  self.assertEqual(request['last_retry_at_utc'],iso(later))
+  self.recover.assert_not_called()
+ def test_authenticated_new_batch_automatically_retries_once(self):
+  coordinate(self.root,NOW,run_recovery=self.recover,run_scan=self.scan)
+  later=NOW+timedelta(seconds=30)
+  self.inbox(NOW+timedelta(seconds=15))
+  result=coordinate(self.root,later,run_recovery=self.recover,run_scan=self.scan)
+  self.assertEqual(result['status'],'SCAN_COMPLETED')
+  self.recover.assert_called_once()
+  self.scan.assert_not_called()
+ def test_stale_batch_is_never_reused_even_with_many_retries(self):
+  self.inbox(NOW-timedelta(seconds=120))
+  for i in range(3):
+   r=coordinate(self.root,NOW+timedelta(seconds=i*5),run_recovery=self.recover,run_scan=self.scan)
+   self.assertEqual(r['status'],'PENDING_CONNECTOR_REFRESH')
+  self.recover.assert_not_called()
+  self.assertEqual(json.loads((self.root/'state/refresh_request.json').read_text())['retry_count'],3)
+
  def test_new_batch_without_pending_evaluates_immediately(self):
   self.inbox(NOW-timedelta(seconds=10))
   result=coordinate(self.root,NOW,run_recovery=self.recover,run_scan=self.scan)

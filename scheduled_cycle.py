@@ -11,7 +11,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime,timezone
+from datetime import datetime,timedelta,timezone
 from pathlib import Path
 from forward_paper import atomic,load
 from replay import iso,timestamp,recent
@@ -40,6 +40,55 @@ def input_fresh_since_request(path:Path,request:dict,now:datetime)->tuple[bool,s
         return False,'UNVERIFIED_CONNECTOR_BATCH'
     return True,'NEW_PROVIDER_BATCH_AVAILABLE'
 
+REFRESH_RETRY_INTERVAL=timedelta(seconds=30)
+
+
+def ensure_refresh_request(state:Path,now:datetime,reason:str)->dict:
+    """Durable authenticated-collector handoff on every stale/missing batch.
+
+    A request is not a fresh quote. Preserve its timestamp until a genuinely
+    newer provider batch arrives; otherwise a repeated watchdog tick can
+    forever outrun the collector by moving the acceptance cutoff forward.
+    """
+    path=state/'refresh_request.json'
+    current=load(path,{})
+    if current.get('status')=='PENDING_CONNECTOR_REFRESH':
+        try:
+            originally=timestamp(current['requested_at_utc'])
+        except (KeyError,ValueError,TypeError,AttributeError):
+            originally=now
+        if originally<=now:
+            # A pending request is safely idempotent. Record each watchdog
+            # retry but never grant permission to replay old provider data.
+            data=dict(current)
+            data['last_retry_at_utc']=iso(now)
+            data['retry_count']=int(current.get('retry_count',0))+1
+            data['last_observed_failure']=reason
+            data['paper_only']=True
+            data['broker_submissions']=0
+            atomic(path,data)
+            return data
+    data={'status':'PENDING_CONNECTOR_REFRESH','requested_at_utc':iso(now),
+        'last_retry_at_utc':iso(now),'retry_count':1,
+        'reason':reason,'last_observed_failure':reason,
+        'collector_action':'FETCH_NEW_AUTHENTICATED_ROBINHOOD_READ_ONLY_BATCH_AND_RETRY',
+        'target':'state/incoming_robinhood_batch.json',
+        'technical_plan':'state/technical_collection_plan.json',
+        'contract_coverage_plan':'state/directional_collection_request.json',
+        'second_quote_handoff':'state/second_quote_request.json',
+        'required_symbols':['SPX','XSP'],
+        'required_option_rights':['put','call'],
+        'requires_original_provider_timestamps':True,
+        'requires_newer_than_request':True,
+        'max_quote_age_seconds':60,
+        'next_action':'PUBLISH_GENUINELY_NEW_PROVIDER_BATCH_THEN_INVOKE_REFRESH_RECOVERY_IMMEDIATELY',
+        'paper_only':True,'live_trading_enabled':False,
+        'broker_execution_enabled':False,'order_submission_enabled':False,
+        'broker_submissions':0}
+    atomic(path,data)
+    return data
+
+
 def coordinate(root:Path,now:datetime,*,run_recovery,run_scan):
     root=Path(root);state=root/'state';state.mkdir(parents=True,exist_ok=True)
     request=load(state/'refresh_request.json',{})
@@ -52,16 +101,23 @@ def coordinate(root:Path,now:datetime,*,run_recovery,run_scan):
         data={'status':status,'reason':reason,'action':action,
               'at_utc':iso(now),'paper_only':True,'broker_submissions':0,
               'scan_started':False if status!='SCAN_COMPLETED' else True}
+        if status in ('PENDING_CONNECTOR_REFRESH','WAITING_FOR_FRESH_CONNECTOR_BATCH'):
+            refresh=ensure_refresh_request(state,now,reason)
+            data['refresh_requested']=True
+            data['refresh_request_path']='state/refresh_request.json'
+            data['refresh_attempt_count']=refresh.get('retry_count')
+            data['refresh_requested_at_utc']=refresh.get('requested_at_utc')
+            data['collector_action']=refresh.get('collector_action','FETCH_NEW_AUTHENTICATED_ROBINHOOD_READ_ONLY_BATCH_AND_RETRY')
+            # The provider fetch must happen outside this uncredentialed server
+            # by the connected collector. Never claim it was fetched here.
+            data['provider_fetch_status']='AUTHENTICATED_COLLECTOR_REQUIRED'
         atomic(state/'scheduled_cycle_latest.json',data)
         return data
     if pending:
         # If prior reported pending but file is missing, preserve the request
         # across restarts. Never silently discard a pending refresh obligation.
         if request.get('status')!='PENDING_CONNECTOR_REFRESH':
-            request={'status':'PENDING_CONNECTOR_REFRESH','requested_at_utc':iso(now),
-                     'reason':prior.get('feed_status','PRIOR_CYCLE_REQUIRES_REFRESH'),
-                     'paper_only':True,'broker_submissions':0}
-            atomic(state/'refresh_request.json',request)
+            request=ensure_refresh_request(state,now,prior.get('feed_status','PRIOR_CYCLE_REQUIRES_REFRESH'))
         ready,why=input_fresh_since_request(inbound,request,now)
         if not ready:
             return report('PENDING_CONNECTOR_REFRESH',why,'FETCH_FRESH_READ_ONLY_ROBINHOOD_DATA_BEFORE_NEXT_SCAN')
@@ -74,11 +130,11 @@ def coordinate(root:Path,now:datetime,*,run_recovery,run_scan):
     # substitute for a new authenticated provider observation.
     ready,why=input_fresh_since_request(inbound,{},now)
     if not ready:
-        return report('WAITING_FOR_FRESH_CONNECTOR_BATCH',why,'NO_SCAN_UNTIL_NEW_PROVIDER_PUBLICATION')
+        return report('PENDING_CONNECTOR_REFRESH',why,'REQUEST_AUTHENTICATED_PROVIDER_REFRESH_AND_RETRY')
     batch=load(inbound,{})
     if consumed.get('generated_at_utc') and timestamp(batch['generated_at_utc'])<=timestamp(consumed['generated_at_utc']):
-        return report('WAITING_FOR_FRESH_CONNECTOR_BATCH','CONNECTOR_BATCH_ALREADY_CONSUMED',
-                      'NO_DUPLICATE_SCAN')
+        return report('PENDING_CONNECTOR_REFRESH','CONNECTOR_BATCH_ALREADY_CONSUMED',
+                      'REQUEST_AUTHENTICATED_PROVIDER_REFRESH_AND_RETRY')
     result=run_recovery(inbound)
     if result.get('status')!='RESUMED':
         return report('PENDING_CONNECTOR_REFRESH',result.get('reason','RECOVERY_NOT_VERIFIED'),
