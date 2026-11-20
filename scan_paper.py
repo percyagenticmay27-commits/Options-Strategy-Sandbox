@@ -169,10 +169,37 @@ def execute_scan(root,now,snapshots,session,calendar,bwb_snapshots=None):
     for f in frames:
         quotes=quotes_at(f,now)
         g=entry_gate_detail(f,now,bearish_shadow=True)
-        bearish_audit[f['symbol']]={'gate':g,'quote_count':len(quotes),
-          'profiles':{name:selection_diagnostics(f,now,quotes,band,RISK_CAP,bearish_shadow=True)
-                      for name,band in PROFILES.items()},
-          'paper_only':True,'broker_submissions':0}
+        bearish_profiles={}
+        for name,band in PROFILES.items():
+            diag=selection_diagnostics(f,now,quotes,band,RISK_CAP,bearish_shadow=True)
+            if f.get('direction')!='DOWN':
+                bearish_profiles[name]={'status':'BEARISH_SIGNAL_REQUIRED',
+                    'reasons':['DOWN_VWAP_BREAKDOWN_OR_RESISTANCE_REQUIRED'],
+                    'diagnostics':diag}
+            elif g['primary']:
+                bearish_profiles[name]={'status':'BLOCKED',
+                    'reasons':g['reasons'],'diagnostics':diag}
+            else:
+                proposed=selection(f,now,quotes,band,RISK_CAP,bearish_shadow=True)
+                if proposed is None:
+                    bearish_profiles[name]={'status':'NO_ELIGIBLE_BEAR_CALL_CREDIT',
+                        'reasons':diag['reasons'],'diagnostics':diag}
+                else:
+                    spread,credit=proposed
+                    from replay import economics
+                    profit,loss=economics(spread,credit)
+                    bearish_profiles[name]={
+                        'status':'ELIGIBLE_PENDING_INDEPENDENT_SECOND_QUOTE',
+                        'short_legs':[{'id':c.key,'strike':str(c.strike),'right':c.right} for c in spread.shorts],
+                        'long_legs':[{'id':c.key,'strike':str(c.strike),'right':c.right} for c in spread.longs],
+                        'natural_credit':str(credit),'max_defined_loss_usd':str(loss),
+                        'net_profit_usd':str(profit),'diagnostics':diag,
+                        'paper_fill':False,'broker_submissions':0}
+        bearish_audit[f['symbol']]={'gate':g,'direction':f.get('direction'),
+          'signal_reason':f.get('signal_reason'),'quote_count':len(quotes),
+          'quoted_calls':sum(q.contract.right=='C' for q in quotes.values()),
+          'quoted_puts':sum(q.contract.right=='P' for q in quotes.values()),
+          'profiles':bearish_profiles,'paper_only':True,'broker_submissions':0}
     atomic(root/'state/bearish_selection_diagnostics.json',
            {'at':iso(now),'symbols':bearish_audit,'paper_only':True,'broker_submissions':0})
     atomic(root/'state/strategy_evaluation_audit.json',

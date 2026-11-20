@@ -19,3 +19,15 @@
 ## Test proof and production boundary
 
 `python3 -m unittest discover -s tests -p 'test_*.py' -q` includes deterministic tests for (a) existing bearish rejection in baseline, (b) a genuine queued-and-filled two-batch bearish call spread in separate shadow, (c) stale/duplicate quotes rejected, (d) exact leg ID handoff, (e) both-right coverage shortfalls. No live trade order or paper backdating is permitted. **New bearish paper trades require forward provider observations during the real entry window**; a green synthetic test is not evidence that a live quote was collected.
+
+## November 20, 2026 — Two-sided technical collection handoff
+
+The remaining directional market-data handoff was still put-only despite the existing bearish call-credit shadow selector. `market_data_first.py` now emits **two explicit plans per SPX/XSP underlying** based on the independently confirmed, current SPY 5-minute VWAP direction:
+
+- Confirmed `UP`: `CREDIT_SPX` / `CREDIT_XSP` request listed OTM **put shorts** (both original delta bands) and matching **lower-strike protective long puts**; bearish shadow remains `WAIT`.
+- Confirmed `DOWN`: `BEAR_CALL_CREDIT_SHADOW_SPX` / `BEAR_CALL_CREDIT_SHADOW_XSP` request listed OTM **call shorts** (0.10–0.15 and 0.15–0.25 delta books) with **higher-strike protective long calls**; the control put-credit plan remains `WAIT`.
+- Unconfirmed technical direction, stale quotes, event blocks or unavailable session evidence: neither directional plan is authorized. BWB, Sniper and neutral iron-condor models retain their independent requirements; no short naked calls or unrestricted equity short sales are enabled.
+
+Each direction explicitly retains a **$400 max defined-risk budget per paper book**, **15% minimum fee-inclusive net-profit/maximum-loss**, 60-second authenticated quote freshness, required independent **newer second full-leg quote**, verified index expiration and current entry window. `scan_paper.py` independently reports `state/bearish_selection_diagnostics.json` for each book: a verified candidate's exact short and protective long contract IDs, strikes, natural credit and calculated risk, or explicit technical/coverage blocker reasons. Diagnostics do **not** constitute a paper fill.
+
+Tests: `python3 -m unittest discover -s tests -p 'test_*.py' -q` covers both directions, ungated/stale failure and the original separate bearish shadow paper two-batch fill. These changes only modify the sandbox code. **The external authenticated Robinhood collection worker must actually consume the updated two-sided plan** and publish new, properly time-stamped calls and puts. An earlier `BEARISH_SHADOW_NOT_INSTALLED` message in `state/contract_coverage_latest.json` is an outdated external collector status, not evidence that the Python shadow selector is absent. Until fresh provider data and the collector handshake are verified, the Sandbox must report `WAITING_FOR_FRESH_CONNECTOR_BATCH`, not claim an executable bearish trade.

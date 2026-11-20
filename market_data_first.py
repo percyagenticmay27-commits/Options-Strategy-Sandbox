@@ -95,11 +95,36 @@ def plan(raw,session,now):
             _bars(charts.get('SPY',{}),now)
             signal=chart_context(charts.get('SPY'),session,now)
             frame={'symbol':symbol,'spot':index['value'],'spot_at':index['venue_timestamp']}
-            report['strategies']['CREDIT_'+symbol]={'status':'COLLECT_OPTIONS' if signal.get('technical_clear') else 'WAIT',
-                'reason':signal.get('signal_reason'),'rights':['put'] if signal.get('technical_clear') else [],
-                'spot':index['value'],'delta_bands':[[0.10,0.15],[0.15,0.25]],
-                'wing_offsets':[5,10,15] if symbol=='SPX' else [1,2,3],
+            # The original UP/neutral strategy remains the control book;
+            # confirmed DOWN has its own independent bearish call-credit book.
+            # Do not treat an UNCONFIRMED SPY signal as direction, and never
+            # collect only put wings when the actionable side is bearish.
+            direction=signal.get('direction')
+            ready=signal.get('technical_clear') is True
+            bullish=ready and direction=='UP'
+            bearish=ready and direction=='DOWN'
+            offsets=[5,10,15] if symbol=='SPX' else [1,2,3]
+            common={'spot':index['value'],'delta_bands':[[0.10,0.15],[0.15,0.25]],
+                    'wing_offsets':offsets,'verified_session':session.get('date'),
+                    'max_quote_age_seconds':60,'second_quote_required':True,
+                    'max_defined_risk_per_book_usd':'400',
+                    'min_net_profit_to_max_loss':'0.15',
+                    'paper_only':True,'broker_submissions':0}
+            report['strategies']['CREDIT_'+symbol]={**common,
+                'status':'COLLECT_OPTIONS' if bullish else 'WAIT',
+                'direction':direction,'reason':signal.get('signal_reason') if bullish or not ready else 'CONTROL_BOOK_DOES_NOT_TRADE_DOWN',
+                'rights':['put'] if bullish else [],
+                'spread':'BULL_PUT_CREDIT' if bullish else None,
                 'strike_policy':'EXISTING_OTM_PUT_SHORTS_IN_BOTH_DELTA_BANDS_PLUS_LOWER_PROTECTIVE_WINGS'}
+            report['strategies']['BEAR_CALL_CREDIT_SHADOW_'+symbol]={**common,
+                'status':'COLLECT_OPTIONS' if bearish else 'WAIT',
+                'direction':direction,
+                'reason':signal.get('signal_reason') if bearish or not ready else 'BEARISH_SIGNAL_REQUIRED',
+                'rights':['call'] if bearish else [],
+                'spread':'BEAR_CALL_CREDIT' if bearish else None,
+                'strike_policy':'EXISTING_OTM_CALL_SHORTS_IN_BOTH_DELTA_BANDS_PLUS_HIGHER_PROTECTIVE_WINGS',
+                'independent_paper_book':True,
+                'paper_ledger':'state/bearish_call_shadow_ledger.json'}
             b=context_for(frame,raw,now)
             volok=b.get('ready') and D(b.get('relative_volume','0'))>=1
             report['strategies']['BWB_'+symbol]={'status':'COLLECT_OPTIONS' if volok else 'WAIT' if b.get('ready') or b.get('reason') in {'BWB_VWAP_EMA50_CONFLICT','BWB_NO_FORWARD_PRICE_TARGET'} else 'FETCH_MARKET_DATA_REQUIRED',
@@ -107,11 +132,11 @@ def plan(raw,session,now):
                 'rights':['call' if b['direction']=='UP' else 'put'] if volok else [],
                 'spot':index['value'],'context':b,'strike_policy':'AUTHENTIC_THREE_STRIKE_UNEQUAL_WING_LADDER_AROUND_PROJECTED_TARGET;BUY_1_SELL_2_BUY_1;500_MAX_RISK'}
         except (ValueError,TypeError,KeyError,ArithmeticError) as exc:
-            for strategy in ('CREDIT_','BWB_'):
+            for strategy in ('CREDIT_','BEAR_CALL_CREDIT_SHADOW_','BWB_'):
                 report['strategies'][strategy+symbol]={'status':'FETCH_MARKET_DATA_REQUIRED','reason':str(exc),'rights':[]}
     report['status']='TECHNICALS_EVALUATED'
     report['entry_windows_ct']={'CREDIT':'10:00-11:00','SNIPER':'10:00-11:00','BWB':'10:00-12:30'}
-    report['notice']='Collection plan only. Existing event, entry-time, risk and second-quote checks remain mandatory.'
+    report['notice']='Both UP put-credit and DOWN call-credit collection are supported. These are plans only: no quote collection or trade approval; event, entry-time, risk and newer second-quote checks remain mandatory.'
     return report
 
 def main():
