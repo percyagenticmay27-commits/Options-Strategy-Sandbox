@@ -1,0 +1,15 @@
+[Unit]
+Description=Strategy B read-only Alpaca provider preflight and collector health
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Options-Strategy-Sandbox
+EnvironmentFile=/etc/trade-option-bot.env
+ExecStart=/usr/bin/python3 %h/Options-Strategy-Sandbox/server_collector.py
+TimeoutStartSec=90s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+

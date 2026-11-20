@@ -84,6 +84,41 @@ class ScheduledCycleTests(unittest.TestCase):
   self.recover.assert_not_called()
   self.assertEqual(json.loads((self.root/'state/refresh_request.json').read_text())['retry_count'],3)
 
+ def test_overdue_refresh_escalates_after_two_minutes_but_does_not_fabricate_data(self):
+  coordinate(self.root,NOW,run_recovery=self.recover,run_scan=self.scan)
+  later=NOW+timedelta(minutes=3)
+  observed=coordinate(self.root,later,run_recovery=self.recover,run_scan=self.scan)
+  assert observed['status']=='REFRESH_OVERDUE_AUTHENTICATED_COLLECTOR'
+  assert observed['collector_alert'] is True
+  assert observed['refresh_age_seconds']==180
+  assert observed['scan_started'] is False
+  assert observed['broker_submissions']==0
+  request=json.loads((self.root/'state/refresh_request.json').read_text())
+  assert request['status']=='PENDING_CONNECTOR_REFRESH'
+  assert request['requested_at_utc']==iso(NOW)
+  self.recover.assert_not_called()
+ def test_watchdog_shows_actual_server_provider_blockers(self):
+  coordinate(self.root,NOW,run_recovery=self.recover,run_scan=self.scan)
+  atomic(self.root/'state/server_collector_health.json',{
+   'status':'PROVIDER_EVIDENCE_INCOMPLETE','generated_at_utc':iso(NOW+timedelta(minutes=2)),
+   'blockers':['PROVIDER_403_OPRA_ENTITLEMENT_OR_AGREEMENT_REQUIRED',
+    'AUTHORIZED_TIMESTAMPED_INDEX_SPOT_PROVIDER_NOT_CONFIGURED']})
+  r=coordinate(self.root,NOW+timedelta(minutes=3),run_recovery=self.recover,run_scan=self.scan)
+  assert r['status']=='REFRESH_OVERDUE_AUTHENTICATED_COLLECTOR'
+  assert r['reason']=='SERVER_PROVIDER_EVIDENCE_INCOMPLETE'
+  assert len(r['server_provider_blockers'])==2
+  assert r['scan_started'] is False and r['broker_submissions']==0
+  self.recover.assert_not_called()
+
+ def test_overdue_recovers_with_newer_authentic_batch(self):
+  coordinate(self.root,NOW,run_recovery=self.recover,run_scan=self.scan)
+  coordinate(self.root,NOW+timedelta(minutes=3),run_recovery=self.recover,run_scan=self.scan)
+  self.inbox(NOW+timedelta(minutes=3,seconds=5))
+  result=coordinate(self.root,NOW+timedelta(minutes=3,seconds=20),run_recovery=self.recover,run_scan=self.scan)
+  assert result['status']=='SCAN_COMPLETED'
+  self.recover.assert_called_once()
+  self.scan.assert_not_called()
+
  def test_new_batch_without_pending_evaluates_immediately(self):
   self.inbox(NOW-timedelta(seconds=10))
   result=coordinate(self.root,NOW,run_recovery=self.recover,run_scan=self.scan)

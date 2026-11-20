@@ -1,0 +1,20 @@
+[Unit]
+Description=Strategy B authenticated server-side read-only collection checks
+
+[Timer]
+# Run before associated watchdog to expose provider failures without a long wait.
+OnCalendar=Mon..Fri *-*-* 09:59:45 America/Chicago
+OnCalendar=Mon..Fri *-*-* 10:14:45 America/Chicago
+OnCalendar=Mon..Fri *-*-* 10:19:45 America/Chicago
+OnCalendar=Mon..Fri *-*-* 10:29:45 America/Chicago
+OnCalendar=Mon..Fri *-*-* 10:44:45 America/Chicago
+OnCalendar=Mon..Fri *-*-* 11:29:45 America/Chicago
+OnCalendar=Mon..Fri *-*-* 12:14:45 America/Chicago
+OnCalendar=Mon..Fri *-*-* 14:19:45 America/Chicago
+OnCalendar=Mon..Fri *-*-* 14:24:45 America/Chicago
+AccuracySec=1s
+Persistent=false
+Unit=options-sandbox-collector.service
+
+[Install]
+WantedBy=timers.target

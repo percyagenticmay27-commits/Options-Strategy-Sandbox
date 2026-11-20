@@ -40,7 +40,7 @@ def input_fresh_since_request(path:Path,request:dict,now:datetime)->tuple[bool,s
         return False,'UNVERIFIED_CONNECTOR_BATCH'
     return True,'NEW_PROVIDER_BATCH_AVAILABLE'
 
-REFRESH_RETRY_INTERVAL=timedelta(seconds=30)
+REFRESH_OVERDUE_AFTER=timedelta(minutes=2)
 
 
 def ensure_refresh_request(state:Path,now:datetime,reason:str)->dict:
@@ -111,6 +111,28 @@ def coordinate(root:Path,now:datetime,*,run_recovery,run_scan):
             # The provider fetch must happen outside this uncredentialed server
             # by the connected collector. Never claim it was fetched here.
             data['provider_fetch_status']='AUTHENTICATED_COLLECTOR_REQUIRED'
+            # Don't let "pending" conceal collector failure for an hour.
+            # Keep the original request and recheck new genuinely timestamped
+            # batches at the next watchdog. This is an explicit ERROR state,
+            # not a claim that the server has Robinhood credentials.
+            try:
+                elapsed=now-timestamp(refresh['requested_at_utc'])
+            except (KeyError,ValueError,TypeError,AttributeError):
+                elapsed=REFRESH_OVERDUE_AFTER
+            data['refresh_age_seconds']=max(0,int(elapsed.total_seconds()))
+            if elapsed>=REFRESH_OVERDUE_AFTER:
+                data['status']='REFRESH_OVERDUE_AUTHENTICATED_COLLECTOR'
+                data['reason']='AUTHENTICATED_ROBINHOOD_COLLECTOR_NOT_DELIVERING_NEW_BATCH'
+                data['collector_alert']=True
+                data['required_action']='CONNECTED_COLLECTOR_MUST_FETCH_PUBLISH_AND_TRIGGER_RECOVERY'
+                provider=load(state/'server_collector_health.json',{})
+                if provider.get('status')=='PROVIDER_EVIDENCE_INCOMPLETE':
+                    data['reason']='SERVER_PROVIDER_EVIDENCE_INCOMPLETE'
+                    data['server_provider_blockers']=list(provider.get('blockers') or [])
+                    data['server_provider_checked_at_utc']=provider.get('generated_at_utc')
+                    data['required_action']='FIX_PROVIDER_ACCESS_AND_ADD_VERIFIED_CASH_INDEX_SPOT_BEFORE_NEW_SCAN'
+            else:
+                data['collector_alert']=False
         atomic(state/'scheduled_cycle_latest.json',data)
         return data
     if pending:
@@ -158,6 +180,6 @@ def main():
         return load(root/'state/latest.json',{})
     result=coordinate(root,datetime.now(timezone.utc),run_recovery=recovery,run_scan=scan)
     print(json.dumps(result,sort_keys=True))
-    return 0 if result['status'] in ('SCAN_COMPLETED','PENDING_CONNECTOR_REFRESH','WAITING_FOR_FRESH_CONNECTOR_BATCH') else 66
+    return 0 if result['status'] in ('SCAN_COMPLETED','PENDING_CONNECTOR_REFRESH','WAITING_FOR_FRESH_CONNECTOR_BATCH','REFRESH_OVERDUE_AUTHENTICATED_COLLECTOR') else 66
 
 if __name__=='__main__':raise SystemExit(main())

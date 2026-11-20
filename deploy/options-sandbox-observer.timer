@@ -1,14 +1,20 @@
 [Unit]
-Description=Strategy B independent paper purchase and management scans
+Description=Strategy B 0DTE entry windows, management and authenticated collector watchdog
 
 [Timer]
-# Watchdog only. Every successful collector publication invokes
-# refresh_recovery.py immediately; these ticks NEVER recycle old quotes.
-# Keep an early post-collector status check and afternoon management watchdog.
-OnCalendar=Mon..Fri *-*-* 10:35:00 America/Chicago
-OnCalendar=Mon..Fri *-*-* 11:25:00 America/Chicago
+# User-requested windows CT, Mon-Fri. A fresh collector batch invokes
+# refresh_recovery.py at publication; these checks NEVER fake provider quotes.
+# The installed ChatGPT Robinhood collector still has separate scheduled
+# 10:20/14:20 runs; local watchdogs cannot make authenticated MCP calls.
+OnCalendar=Mon..Fri *-*-* 10:00:00 America/Chicago
+OnCalendar=Mon..Fri *-*-* 10:15:00 America/Chicago
+OnCalendar=Mon..Fri *-*-* 10:20:00 America/Chicago
+OnCalendar=Mon..Fri *-*-* 10:30:00 America/Chicago
+OnCalendar=Mon..Fri *-*-* 10:45:00 America/Chicago
+OnCalendar=Mon..Fri *-*-* 11:30:00 America/Chicago
+OnCalendar=Mon..Fri *-*-* 12:15:00 America/Chicago
+OnCalendar=Mon..Fri *-*-* 14:20:00 America/Chicago
 OnCalendar=Mon..Fri *-*-* 14:25:00 America/Chicago
-OnCalendar=Mon..Fri *-*-* 14:30:00 America/Chicago
 AccuracySec=5s
 Persistent=false
 Unit=options-sandbox-observer.service
